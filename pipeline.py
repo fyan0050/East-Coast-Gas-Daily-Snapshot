@@ -7,6 +7,7 @@ import zipfile
 import io
 import logging
 import re
+import yaml
 
 # 基础配置
 MELBOURNE_TZ = datetime.timezone(datetime.timedelta(hours=10)) # AEST
@@ -41,7 +42,7 @@ def fetch_with_retries(url, max_retries=3, backoff_factor=2):
                 return None
 
 def fetch_gbb_data():
-    """拉取 GBB 数据并寻找 Iona 储气量"""
+    """拉取 GBB 数据并精确提取 Iona 最新储气量"""
     url = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
     content = fetch_with_retries(url)
     
@@ -52,12 +53,27 @@ def fetch_gbb_data():
             f.write(content)
         
         try:
+            # 读取参考表
+            with open("facilities.yaml", "r") as ymlfile:
+                facilities = yaml.safe_load(ymlfile)
+            iona_id = facilities['storage']['iona_ugs']['id']
+            
+            # 解析 CSV
             df = pd.read_csv(io.StringIO(content.decode('utf-8')))
-            iona_rows = df[df.apply(lambda row: row.astype(str).str.contains('Iona', case=False).any(), axis=1)]
-            if not iona_rows.empty:
-                iona_summary = f"Found {len(iona_rows)} rows mentioning 'Iona'. Awaiting P2 exact mapping."
+            
+            # 过滤 Iona 数据
+            iona_df = df[df['FacilityId'] == iona_id]
+            
+            if not iona_df.empty:
+                # 寻找最新的一天
+                latest_date = iona_df['GasDate'].max()
+                latest_row = iona_df[iona_df['GasDate'] == latest_date].iloc[0]
+                
+                # 提取具体数值并进行格式化
+                storage_val = latest_row['HeldInStorage']
+                iona_summary = f"**{storage_val:,.0f} TJ** (as of {latest_date[:10]})"
             else:
-                iona_summary = "Iona data not found in rough parse. Check raw CSV."
+                iona_summary = "Iona Facility ID not found in current data."
         except Exception as e:
             iona_summary = f"Parse error: {e}"
             

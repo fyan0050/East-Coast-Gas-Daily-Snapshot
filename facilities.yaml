@@ -1,0 +1,29 @@
+# AEMO GBB Facility Mapping
+# Reference table extracted from actual GBB data
+
+storage:
+  iona_ugs:
+    id: 530042
+    name: "Iona UGS"
+  dandenong_lng:
+    id: 530038
+    name: "Dandenong LNG"
+
+production:
+  longford:
+    id: 530040
+    name: "Longford"
+  moomba:
+    id: 550045
+    name: "Moomba"
+  glng_curtis_island:
+    id: 544276
+    name: "GLNG (Curtis Island)"
+
+pipelines:
+  egp:
+    id: 520047
+    name: "EGP" # Eastern Gas Pipeline
+  swqp:
+    id: 540060
+    name: "SWQP" # South West Queensland Pipeline
