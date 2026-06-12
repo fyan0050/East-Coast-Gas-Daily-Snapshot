@@ -18,9 +18,15 @@ production:
     name: "Moomba"
 
 demand:
-  glng_curtis_island:
+  glng:
     id: 544276
     name: "GLNG (Curtis Island)"
+  qclng:
+    id: 544272
+    name: "QCLNG (Curtis Island)"
+  aplng:
+    id: 544273
+    name: "APLNG (Curtis Island)"
 
 pipelines:
   egp:

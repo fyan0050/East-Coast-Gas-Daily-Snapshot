@@ -130,11 +130,25 @@ def fetch_sttm_data():
         return "No ZIP files found in directory listing."
         
     target_zip = None
-    for zf in reversed(zip_files):
-        if 'DAY01' in zf.upper() or 'CURRENTDAY' in zf.upper():
+    # 动态构建今天和昨天的文件名，例如 'Day12.zip' 和 'Day11.zip'
+    today_day_str = f"Day{TODAY_DT.day:02d}.zip"
+    yesterday_day_str = f"Day{(TODAY_DT - datetime.timedelta(days=1)).day:02d}.zip"
+    
+    target_zip = None
+    # 优先找今天的，找不到就找昨天的
+    for zf in zip_files:
+        if zf.upper().endswith(today_day_str.upper()):
             target_zip = zf
             break
+    
     if not target_zip:
+        for zf in zip_files:
+            if zf.upper().endswith(yesterday_day_str.upper()):
+                target_zip = zf
+                break
+                
+    if not target_zip:
+        # 如果都没有，作为兜底取列表最后一个
         target_zip = zip_files[-1]
         
     download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
