@@ -1,7 +1,7 @@
 # East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 21:38:57 AEST
+**Run Timestamp:** 2026-06-12 21:46:11 AEST
 **Status:** P1 Thin Pipeline (All Core Facilities Live)
 
 ---
@@ -20,9 +20,9 @@
 As of 2026-06-11:
 * **Longford** (Production): 620 TJ
 * **Moomba** (Production): 226 TJ
-* **GLNG (Curtis Island)** (Production): 0 TJ
-* **EGP** (Pipeline): Transfer In 0 TJ | Out 0 TJ
-* **SWQP** (Pipeline): Transfer In 276 TJ | Out 121 TJ
+* **GLNG (Curtis Island)** (LNG Export): 786 TJ
+* **EGP** (Pipeline): Transfer In 0 TJ | Out 127 TJ
+* **SWQP** (Pipeline): Transfer In 276 TJ | Out 441 TJ
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
