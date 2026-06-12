@@ -42,42 +42,76 @@ def fetch_with_retries(url, max_retries=3, backoff_factor=2):
                 return None
 
 def fetch_gbb_data():
-    """拉取 GBB 数据并精确提取 Iona 最新储气量"""
+    """拉取 GBB 数据并精确提取所有指定设施的最新指标"""
     url = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
     content = fetch_with_retries(url)
     
-    iona_summary = "Data unavailable"
+    # 初始化默认返回字典（对应 PRD 的两大板块）
+    gbb_summary = {
+        "storage": "Data unavailable",
+        "flows": "Data unavailable"
+    }
+    
     if content:
         raw_path = os.path.join(RAW_DIR, "gbb_last31.csv")
         with open(raw_path, "wb") as f:
             f.write(content)
         
         try:
-            # 读取参考表
+            # 1. 读取参考表
             with open("facilities.yaml", "r") as ymlfile:
                 facilities = yaml.safe_load(ymlfile)
-            iona_id = facilities['storage']['iona_ugs']['id']
             
-            # 解析 CSV
+            # 2. 解析 CSV
             df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+            df['GasDate_dt'] = pd.to_datetime(df['GasDate'])
+            latest_date_dt = df['GasDate_dt'].max()
+            latest_date_str = latest_date_dt.strftime('%Y-%m-%d')
             
-            # 过滤 Iona 数据
-            iona_df = df[df['FacilityId'] == iona_id]
+            # 过滤出最新一天的数据
+            today_df = df[df['GasDate_dt'] == latest_date_dt]
             
-            if not iona_df.empty:
-                # 寻找最新的一天
-                latest_date = iona_df['GasDate'].max()
-                latest_row = iona_df[iona_df['GasDate'] == latest_date].iloc[0]
-                
-                # 提取具体数值并进行格式化
-                storage_val = latest_row['HeldInStorage']
-                iona_summary = f"**{storage_val:,.0f} TJ** (as of {latest_date[:10]})"
-            else:
-                iona_summary = "Iona Facility ID not found in current data."
+            # 3. 提取储气库数据 (Storage -> HeldInStorage)
+            storage_results = []
+            for k, v in facilities.get('storage', {}).items():
+                f_data = today_df[today_df['FacilityId'] == v['id']]
+                if not f_data.empty:
+                    val = f_data.iloc[0]['HeldInStorage']
+                    storage_results.append(f"**{v['name']}**: {val:,.0f} TJ")
+                else:
+                    storage_results.append(f"**{v['name']}**: N/A")
+            gbb_summary["storage"] = f"As of {latest_date_str}: " + " | ".join(storage_results)
+            
+            # 4. 提取流向数据 (Production -> Supply, Pipelines -> In/Out)
+            flow_results = []
+            
+            # 生产设施
+            for k, v in facilities.get('production', {}).items():
+                f_data = today_df[today_df['FacilityId'] == v['id']]
+                if not f_data.empty:
+                    val = f_data.iloc[0]['Supply']
+                    flow_results.append(f"* **{v['name']}** (Production): {val:,.0f} TJ")
+                else:
+                    flow_results.append(f"* **{v['name']}** (Production): N/A")
+                    
+            # 管道设施
+            for k, v in facilities.get('pipelines', {}).items():
+                f_data = today_df[today_df['FacilityId'] == v['id']]
+                if not f_data.empty:
+                    t_in = f_data.iloc[0]['TransferIn']
+                    t_out = f_data.iloc[0]['TransferOut']
+                    flow_results.append(f"* **{v['name']}** (Pipeline): Transfer In {t_in:,.0f} TJ | Out {t_out:,.0f} TJ")
+                else:
+                    flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
+                    
+            gbb_summary["flows"] = f"As of {latest_date_str}:\n" + "\n".join(flow_results)
+            
         except Exception as e:
-            iona_summary = f"Parse error: {e}"
+            error_msg = f"Parse error: {e}"
+            gbb_summary["storage"] = error_msg
+            gbb_summary["flows"] = error_msg
             
-    return iona_summary
+    return gbb_summary
 
 def fetch_sttm_data():
     """动态拉取 STTM 目录，提取三大 Hub 的 Ex-Ante 与 Ex-Post 价格"""
@@ -159,15 +193,15 @@ def fetch_sttm_data():
     except Exception as e:
         return f"Parse error: {e}"
 
-def generate_report(iona_status, sttm_status):
-    """生成每日 Markdown 简报"""
+def generate_report(gbb_data, sttm_status):
+    """生成每日 Markdown 简报 (完美匹配 PRD 章节结构)"""
     run_time = datetime.datetime.now(MELBOURNE_TZ).strftime('%Y-%m-%d %H:%M:%S AEST')
     
     md_content = f"""# East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** {TODAY_STR}
 **Run Timestamp:** {run_time}
-**Status:** P1 Thin Pipeline
+**Status:** P1 Thin Pipeline (All Core Facilities Live)
 
 ---
 
@@ -177,8 +211,11 @@ def generate_report(iona_status, sttm_status):
 ## 2. Prices (STTM)
 * **Status:** {sttm_status}
 
-## 3. Storage (Iona)
-* **Status:** {iona_status}
+## 3. Storage
+* **Status:** {gbb_data['storage']}
+
+## 4. Flows (Major Facilities & Pipelines)
+{gbb_data['flows']}
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
@@ -195,14 +232,14 @@ def main():
     logging.info("Starting East Coast Gas Daily Pipeline (P1)...")
     setup_directories()
     
-    logging.info("Fetching GBB Data...")
-    iona_status = fetch_gbb_data()
+    logging.info("Fetching GBB Data (All Facilities)...")
+    gbb_data = fetch_gbb_data()
     
     logging.info("Fetching STTM Data...")
     sttm_status = fetch_sttm_data()
     
     logging.info("Generating Report...")
-    generate_report(iona_status, sttm_status)
+    generate_report(gbb_data, sttm_status)
     logging.info("Pipeline run completed.")
 
 if __name__ == "__main__":
