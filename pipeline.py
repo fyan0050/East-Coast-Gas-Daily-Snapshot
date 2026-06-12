@@ -95,13 +95,14 @@ def fetch_gbb_data():
                 else:
                     flow_results.append(f"* **{v['name']}** (LNG Export): N/A")
                     
-            # 管道设施 (Transfer In/Out -> Sum)
+            # 管道设施 (修复 AEMO 混合记账规则: True In = TransferIn + Supply, True Out = TransferOut + Demand)
             for k, v in facilities.get('pipelines', {}).items():
                 f_data = today_df[today_df['FacilityId'] == v['id']]
                 if not f_data.empty:
-                    t_in = f_data['TransferIn'].sum()
-                    t_out = f_data['TransferOut'].sum()
-                    flow_results.append(f"* **{v['name']}** (Pipeline): Transfer In {t_in:,.0f} TJ | Out {t_out:,.0f} TJ")
+                    # 将 Supply 和 Demand 纳入管道的物理进出流计算
+                    t_in = f_data['TransferIn'].sum() + f_data['Supply'].sum()
+                    t_out = f_data['TransferOut'].sum() + f_data['Demand'].sum()
+                    flow_results.append(f"* **{v['name']}** (Pipeline): Flow In {t_in:,.0f} TJ | Flow Out {t_out:,.0f} TJ")
                 else:
                     flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
                     
