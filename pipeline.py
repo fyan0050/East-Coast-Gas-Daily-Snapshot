@@ -129,7 +129,6 @@ def fetch_sttm_data():
     if not zip_files:
         return "No ZIP files found in directory listing."
         
-    target_zip = None
     # 动态构建今天和昨天的文件名，例如 'Day12.zip' 和 'Day11.zip'
     today_day_str = f"Day{TODAY_DT.day:02d}.zip"
     yesterday_day_str = f"Day{(TODAY_DT - datetime.timedelta(days=1)).day:02d}.zip"
