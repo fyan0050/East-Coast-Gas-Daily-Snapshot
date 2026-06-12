@@ -2,7 +2,7 @@ import sqlite3
 import os
 import logging
 
-DB_DIR = "data/processed"
+DB_DIR = "C:\github\East-Coast-Gas-Daily-Snapshot/data/processed"
 DB_PATH = os.path.join(DB_DIR, "east_coast_gas.db")
 
 def init_db():
