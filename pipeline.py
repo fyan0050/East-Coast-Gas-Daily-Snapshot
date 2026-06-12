@@ -116,7 +116,7 @@ def fetch_gbb_data():
     return gbb_summary
 
 def fetch_sttm_data():
-    """动态拉取 STTM 目录，提取三大 Hub 的 Ex-Ante 与 Ex-Post 价格"""
+    """动态拉取 STTM 目录，包含防幽灵数据（Stale Data）的日期探测逻辑"""
     folder_url = "https://nemweb.com.au/Reports/Current/STTM/"
     folder_content = fetch_with_retries(folder_url)
     
@@ -129,61 +129,77 @@ def fetch_sttm_data():
     if not zip_files:
         return "No ZIP files found in directory listing."
         
-    # 动态构建今天和昨天的文件名，例如 'Day12.zip' 和 'Day11.zip'
-    today_day_str = f"Day{TODAY_DT.day:02d}.zip"
-    yesterday_day_str = f"Day{(TODAY_DT - datetime.timedelta(days=1)).day:02d}.zip"
+    # 1. 构造最近 3 天的候选名单 (完美处理月初的跨月问题)
+    days_to_try = [
+        TODAY_DT,
+        TODAY_DT - datetime.timedelta(days=1),
+        TODAY_DT - datetime.timedelta(days=2)
+    ]
     
-    target_zip = None
-    # 优先找今天的，找不到就找昨天的
-    for zf in zip_files:
-        if zf.upper().endswith(today_day_str.upper()):
-            target_zip = zf
-            break
+    valid_content = None
     
-    if not target_zip:
-        for zf in zip_files:
-            if zf.upper().endswith(yesterday_day_str.upper()):
-                target_zip = zf
-                break
-                
-    if not target_zip:
-        # 如果都没有，作为兜底取列表最后一个
-        target_zip = zip_files[-1]
+    for dt in days_to_try:
+        candidate_name = f"Day{dt.day:02d}.zip"
+        target_zip = next((zf for zf in zip_files if zf.upper().endswith(candidate_name.upper())), None)
         
-    download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
-    content = fetch_with_retries(download_url)
-    
-    if not content:
-        return "Failed to download STTM ZIP."
-
+        if target_zip:
+            download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
+            logging.info(f"Probing STTM file: {candidate_name}")
+            content = fetch_with_retries(download_url)
+            
+            if content:
+                # 💡 核心防御：打开 ZIP 偷偷看一眼日期
+                try:
+                    with zipfile.ZipFile(io.BytesIO(content)) as z:
+                        int651_files = [f for f in z.namelist() if f.startswith('int651_')]
+                        if int651_files:
+                            # 只读取前 5 行进行极速探测
+                            df_peek = pd.read_csv(z.open(int651_files[0]), nrows=5)
+                            df_peek['gas_date_dt'] = pd.to_datetime(df_peek['gas_date'])
+                            peek_date = df_peek['gas_date_dt'].max().date()
+                            today_date = TODAY_DT.date()
+                            
+                            # 计算文件内的真实数据距离今天有多久
+                            days_old = (today_date - peek_date).days
+                            
+                            # Ex-ante 价格通常是提前发布的 (D+1)，所以有负数。
+                            # 如果数据日期在今天前后几天内，说明是新鲜的！
+                            if -2 <= days_old <= 5:
+                                valid_content = content
+                                logging.info(f"✅ Success: {candidate_name} is fresh (Contains {peek_date})")
+                                break
+                            else:
+                                logging.warning(f"❌ Discarded: {candidate_name} is a stale file from last month (Contains {peek_date})")
+                except Exception as e:
+                    logging.warning(f"Failed to peek into {candidate_name}: {e}")
+                    
+    if not valid_content:
+        return "Failed to find any fresh STTM data (within 5 days) in the directory."
+        
+    # --- 找到新鲜数据后，执行正常解析 ---
     raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
     with open(raw_path, "wb") as f:
-        f.write(content)
+        f.write(valid_content)
             
     try:
-        # 1. 加载 YAML 配置中的 Hub ID
         with open("facilities.yaml", "r") as ymlfile:
             facilities = yaml.safe_load(ymlfile)
         hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
         
-        # 2. 遍历 ZIP，分别把 int651 和 int657 的 CSV 挑出来
         int651_dfs, int657_dfs = [], []
-        with zipfile.ZipFile(io.BytesIO(content)) as z:
+        with zipfile.ZipFile(io.BytesIO(valid_content)) as z:
             for filename in z.namelist():
                 if filename.startswith('int651_'):
                     int651_dfs.append(pd.read_csv(z.open(filename)))
                 elif filename.startswith('int657_'):
                     int657_dfs.append(pd.read_csv(z.open(filename)))
         
-        # 3. 数据清洗辅助函数
         def process_price_dfs(dfs, date_col, price_col, label):
             if not dfs: 
                 return f"{label}: Data not found in today's ZIP."
-                
             df = pd.concat(dfs, ignore_index=True)
             df['gas_date_dt'] = pd.to_datetime(df[date_col])
             df = df.sort_values('report_datetime') 
-            
             latest_date = df['gas_date_dt'].max()
             today_df = df[df['gas_date_dt'] == latest_date]
             
@@ -195,14 +211,11 @@ def fetch_sttm_data():
                     results.append(f"**{hub}**: ${price:.2f}/GJ")
                 else:
                     results.append(f"**{hub}**: N/A")
-                    
             return f"{label} ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results)
 
-        # 4. 分别处理事前和事后价格
         ante_summary = process_price_dfs(int651_dfs, 'gas_date', 'ex_ante_market_price', 'Ex-Ante')
         post_summary = process_price_dfs(int657_dfs, 'gas_date', 'ex_post_imbalance_price', 'Ex-Post')
         
-        # 使用 \n* **Status:** 拼接，为了在 Markdown 报告中形成漂亮的两行列表
         return f"{ante_summary}\n* **Status:** {post_summary}"
             
     except Exception as e:
