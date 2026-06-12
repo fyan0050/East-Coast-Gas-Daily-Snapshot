@@ -80,10 +80,9 @@ def fetch_gbb_data():
     return iona_summary
 
 def fetch_sttm_data():
-    """动态拉取 STTM 目录，提取三大 Hub 的 Ex-Ante 价格"""
+    """动态拉取 STTM 目录，提取三大 Hub 的 Ex-Ante 与 Ex-Post 价格"""
     folder_url = "https://nemweb.com.au/Reports/Current/STTM/"
     folder_content = fetch_with_retries(folder_url)
-    sttm_summary = "Data unavailable"
     
     if not folder_content:
         return "Failed to reach STTM directory."
@@ -99,61 +98,66 @@ def fetch_sttm_data():
         if 'DAY01' in zf.upper() or 'CURRENTDAY' in zf.upper():
             target_zip = zf
             break
-            
     if not target_zip:
         target_zip = zip_files[-1]
         
     download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
     content = fetch_with_retries(download_url)
     
-    if content:
-        raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
-        with open(raw_path, "wb") as f:
-            f.write(content)
+    if not content:
+        return "Failed to download STTM ZIP."
+
+    raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
+    with open(raw_path, "wb") as f:
+        f.write(content)
             
-        try:
-            # 1. 加载 YAML 配置中的 Hub ID
-            with open("facilities.yaml", "r") as ymlfile:
-                facilities = yaml.safe_load(ymlfile)
-            hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
-            
-            # 2. 遍历 ZIP，寻找所有的 int651 文件
-            int651_dfs = []
-            with zipfile.ZipFile(io.BytesIO(content)) as z:
-                for filename in z.namelist():
-                    if filename.startswith('int651_'):
-                        with z.open(filename) as csv_file:
-                            int651_dfs.append(pd.read_csv(csv_file))
-            
-            # 3. 数据清洗与提取
-            if int651_dfs:
-                # 合并所有同类文件
-                df = pd.concat(int651_dfs, ignore_index=True)
-                df['gas_date_dt'] = pd.to_datetime(df['gas_date'])
-                # 按报告时间排序，确保最后出现的是最新数据
-                df = df.sort_values('report_datetime') 
+    try:
+        # 1. 加载 YAML 配置中的 Hub ID
+        with open("facilities.yaml", "r") as ymlfile:
+            facilities = yaml.safe_load(ymlfile)
+        hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
+        
+        # 2. 遍历 ZIP，分别把 int651 和 int657 的 CSV 挑出来
+        int651_dfs, int657_dfs = [], []
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            for filename in z.namelist():
+                if filename.startswith('int651_'):
+                    int651_dfs.append(pd.read_csv(z.open(filename)))
+                elif filename.startswith('int657_'):
+                    int657_dfs.append(pd.read_csv(z.open(filename)))
+        
+        # 3. 数据清洗辅助函数
+        def process_price_dfs(dfs, date_col, price_col, label):
+            if not dfs: 
+                return f"{label}: Data not found in today's ZIP."
                 
-                # 获取数据集中最新的天然气日期
-                latest_date = df['gas_date_dt'].max()
-                today_df = df[df['gas_date_dt'] == latest_date]
-                
-                results = []
-                for hub in hub_ids:
-                    hub_data = today_df[today_df['hub_identifier'] == hub]
-                    if not hub_data.empty:
-                        price = hub_data.iloc[-1]['ex_ante_market_price']
-                        results.append(f"**{hub}**: ${price:.2f}/GJ")
-                    else:
-                        results.append(f"**{hub}**: N/A")
-                        
-                sttm_summary = f"Ex-Ante ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results)
-            else:
-                sttm_summary = "Price data (int651) not found in today's ZIP."
-                
-        except Exception as e:
-            sttm_summary = f"Parse error: {e}"
+            df = pd.concat(dfs, ignore_index=True)
+            df['gas_date_dt'] = pd.to_datetime(df[date_col])
+            df = df.sort_values('report_datetime') 
             
-    return sttm_summary
+            latest_date = df['gas_date_dt'].max()
+            today_df = df[df['gas_date_dt'] == latest_date]
+            
+            results = []
+            for hub in hub_ids:
+                hub_data = today_df[today_df['hub_identifier'] == hub]
+                if not hub_data.empty:
+                    price = hub_data.iloc[-1][price_col]
+                    results.append(f"**{hub}**: ${price:.2f}/GJ")
+                else:
+                    results.append(f"**{hub}**: N/A")
+                    
+            return f"{label} ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results)
+
+        # 4. 分别处理事前和事后价格
+        ante_summary = process_price_dfs(int651_dfs, 'gas_date', 'ex_ante_market_price', 'Ex-Ante')
+        post_summary = process_price_dfs(int657_dfs, 'gas_date', 'ex_post_imbalance_price', 'Ex-Post')
+        
+        # 使用 \n* **Status:** 拼接，为了在 Markdown 报告中形成漂亮的两行列表
+        return f"{ante_summary}\n* **Status:** {post_summary}"
+            
+    except Exception as e:
+        return f"Parse error: {e}"
 
 def generate_report(iona_status, sttm_status):
     """生成每日 Markdown 简报"""
