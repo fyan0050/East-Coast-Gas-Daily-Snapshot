@@ -1,7 +1,7 @@
 # East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 20:46:19 AEST
+**Run Timestamp:** 2026-06-12 21:17:16 AEST
 **Status:** P1 Thin Pipeline
 
 ---
@@ -13,7 +13,7 @@
 * **Status:** Success! Downloaded Day01.zip. Contains 49 CSV files. Awaiting P2.
 
 ## 3. Storage (Iona)
-* **Status:** Found 3839 rows mentioning 'Iona'. Awaiting P2 exact mapping.
+* **Status:** **25,004 TJ** (as of 2026/06/11)
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
