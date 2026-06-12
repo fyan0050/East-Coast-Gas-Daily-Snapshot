@@ -80,26 +80,20 @@ def fetch_gbb_data():
     return iona_summary
 
 def fetch_sttm_data():
-    """动态拉取 STTM 目录，寻找最新的 ZIP 文件，解决硬编码失效问题"""
-    # 修正：将 CURRENT 改为首字母大写 Current，并去掉 www
+    """动态拉取 STTM 目录，提取三大 Hub 的 Ex-Ante 价格"""
     folder_url = "https://nemweb.com.au/Reports/Current/STTM/"
-    logging.info(f"Scanning STTM directory: {folder_url}")
-    
     folder_content = fetch_with_retries(folder_url)
     sttm_summary = "Data unavailable"
     
     if not folder_content:
-        return "Failed to reach STTM directory. Check Github Actions log for HTTP error."
+        return "Failed to reach STTM directory."
         
     html = folder_content.decode('utf-8', errors='ignore')
-    
-    # 使用正则解析 HTML 目录，寻找所有 ZIP 文件链接
     zip_files = re.findall(r'href="([^"]+\.zip)"', html, re.IGNORECASE)
     
     if not zip_files:
-        return "Folder reached, but no ZIP files found in directory listing."
+        return "No ZIP files found in directory listing."
         
-    # 寻找包含 DAY01 或 CURRENTDAY 的文件；如果没有，默认取列表最后一个（NEMWEB中通常是最新的）
     target_zip = None
     for zf in reversed(zip_files):
         if 'DAY01' in zf.upper() or 'CURRENTDAY' in zf.upper():
@@ -109,28 +103,55 @@ def fetch_sttm_data():
     if not target_zip:
         target_zip = zip_files[-1]
         
-    # 拼接完整下载链接
-    if target_zip.startswith('/'):
-        download_url = f"https://nemweb.com.au{target_zip}"
-    else:
-        download_url = f"{folder_url}{target_zip}"
-        
-    logging.info(f"Dynamically found STTM ZIP target: {download_url}")
-    
-    # 再次请求下载真实的 ZIP 文件
+    download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
     content = fetch_with_retries(download_url)
+    
     if content:
         raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
         with open(raw_path, "wb") as f:
             f.write(content)
             
         try:
+            # 1. 加载 YAML 配置中的 Hub ID
+            with open("facilities.yaml", "r") as ymlfile:
+                facilities = yaml.safe_load(ymlfile)
+            hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
+            
+            # 2. 遍历 ZIP，寻找所有的 int651 文件
+            int651_dfs = []
             with zipfile.ZipFile(io.BytesIO(content)) as z:
-                csv_files = [f for f in z.namelist() if f.upper().endswith('.CSV')]
-                file_name = target_zip.split('/')[-1]
-                sttm_summary = f"Success! Downloaded {file_name}. Contains {len(csv_files)} CSV files. Awaiting P2."
+                for filename in z.namelist():
+                    if filename.startswith('int651_'):
+                        with z.open(filename) as csv_file:
+                            int651_dfs.append(pd.read_csv(csv_file))
+            
+            # 3. 数据清洗与提取
+            if int651_dfs:
+                # 合并所有同类文件
+                df = pd.concat(int651_dfs, ignore_index=True)
+                df['gas_date_dt'] = pd.to_datetime(df['gas_date'])
+                # 按报告时间排序，确保最后出现的是最新数据
+                df = df.sort_values('report_datetime') 
+                
+                # 获取数据集中最新的天然气日期
+                latest_date = df['gas_date_dt'].max()
+                today_df = df[df['gas_date_dt'] == latest_date]
+                
+                results = []
+                for hub in hub_ids:
+                    hub_data = today_df[today_df['hub_identifier'] == hub]
+                    if not hub_data.empty:
+                        price = hub_data.iloc[-1]['ex_ante_market_price']
+                        results.append(f"**{hub}**: ${price:.2f}/GJ")
+                    else:
+                        results.append(f"**{hub}**: N/A")
+                        
+                sttm_summary = f"Ex-Ante ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results)
+            else:
+                sttm_summary = "Price data (int651) not found in today's ZIP."
+                
         except Exception as e:
-            sttm_summary = f"Unzip error: {e}"
+            sttm_summary = f"Parse error: {e}"
             
     return sttm_summary
 

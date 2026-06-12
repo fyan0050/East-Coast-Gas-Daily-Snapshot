@@ -27,3 +27,16 @@ pipelines:
   swqp:
     id: 540060
     name: "SWQP" # South West Queensland Pipeline
+
+    # ... (之前 GBB 的 storage, production, pipelines 保持不变) ...
+
+hubs:
+  syd:
+    id: "SYD"
+    name: "Sydney"
+  adl:
+    id: "ADL"
+    name: "Adelaide"
+  bri:
+    id: "BRI"
+    name: "Brisbane"
