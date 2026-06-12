@@ -1,7 +1,7 @@
 # East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 22:05:29 AEST
+**Run Timestamp:** 2026-06-12 22:08:56 AEST
 **Status:** P1 Thin Pipeline (All Core Facilities Live)
 
 ---
