@@ -42,15 +42,11 @@ def fetch_with_retries(url, max_retries=3, backoff_factor=2):
                 return None
 
 def fetch_gbb_data():
-    """拉取 GBB 数据并精确提取所有指定设施的最新指标"""
+    """拉取 GBB 数据并精确提取所有指定设施的最新指标 (已修复聚合与业务逻辑)"""
     url = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
     content = fetch_with_retries(url)
     
-    # 初始化默认返回字典（对应 PRD 的两大板块）
-    gbb_summary = {
-        "storage": "Data unavailable",
-        "flows": "Data unavailable"
-    }
+    gbb_summary = {"storage": "Data unavailable", "flows": "Data unavailable"}
     
     if content:
         raw_path = os.path.join(RAW_DIR, "gbb_last31.csv")
@@ -58,48 +54,53 @@ def fetch_gbb_data():
             f.write(content)
         
         try:
-            # 1. 读取参考表
             with open("facilities.yaml", "r") as ymlfile:
                 facilities = yaml.safe_load(ymlfile)
             
-            # 2. 解析 CSV
             df = pd.read_csv(io.StringIO(content.decode('utf-8')))
             df['GasDate_dt'] = pd.to_datetime(df['GasDate'])
             latest_date_dt = df['GasDate_dt'].max()
             latest_date_str = latest_date_dt.strftime('%Y-%m-%d')
-            
-            # 过滤出最新一天的数据
             today_df = df[df['GasDate_dt'] == latest_date_dt]
             
-            # 3. 提取储气库数据 (Storage -> HeldInStorage)
+            # 1. 储气库 (Sum)
             storage_results = []
             for k, v in facilities.get('storage', {}).items():
                 f_data = today_df[today_df['FacilityId'] == v['id']]
                 if not f_data.empty:
-                    val = f_data.iloc[0]['HeldInStorage']
+                    val = f_data['HeldInStorage'].sum() # 修复：使用 sum()
                     storage_results.append(f"**{v['name']}**: {val:,.0f} TJ")
                 else:
                     storage_results.append(f"**{v['name']}**: N/A")
             gbb_summary["storage"] = f"As of {latest_date_str}: " + " | ".join(storage_results)
             
-            # 4. 提取流向数据 (Production -> Supply, Pipelines -> In/Out)
+            # 2. 流向数据
             flow_results = []
             
-            # 生产设施
+            # 生产设施 (Supply -> Sum)
             for k, v in facilities.get('production', {}).items():
                 f_data = today_df[today_df['FacilityId'] == v['id']]
                 if not f_data.empty:
-                    val = f_data.iloc[0]['Supply']
+                    val = f_data['Supply'].sum()
                     flow_results.append(f"* **{v['name']}** (Production): {val:,.0f} TJ")
                 else:
                     flow_results.append(f"* **{v['name']}** (Production): N/A")
+
+            # 需求设施 - 如 LNG 出口 (Demand -> Sum)
+            for k, v in facilities.get('demand', {}).items():
+                f_data = today_df[today_df['FacilityId'] == v['id']]
+                if not f_data.empty:
+                    val = f_data['Demand'].sum()
+                    flow_results.append(f"* **{v['name']}** (LNG Export): {val:,.0f} TJ")
+                else:
+                    flow_results.append(f"* **{v['name']}** (LNG Export): N/A")
                     
-            # 管道设施
+            # 管道设施 (Transfer In/Out -> Sum)
             for k, v in facilities.get('pipelines', {}).items():
                 f_data = today_df[today_df['FacilityId'] == v['id']]
                 if not f_data.empty:
-                    t_in = f_data.iloc[0]['TransferIn']
-                    t_out = f_data.iloc[0]['TransferOut']
+                    t_in = f_data['TransferIn'].sum()
+                    t_out = f_data['TransferOut'].sum()
                     flow_results.append(f"* **{v['name']}** (Pipeline): Transfer In {t_in:,.0f} TJ | Out {t_out:,.0f} TJ")
                 else:
                     flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
