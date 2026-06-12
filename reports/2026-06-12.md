@@ -1,7 +1,7 @@
 # East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 22:08:56 AEST
+**Run Timestamp:** 2026-06-12 22:12:49 AEST
 **Status:** P1 Thin Pipeline (All Core Facilities Live)
 
 ---
@@ -10,8 +10,8 @@
 * Pipeline is in P1 phase. Anomaly detection logic will be implemented in P2.
 
 ## 2. Prices (STTM)
-* **Status:** Ex-Ante (2026-05-13): **SYD**: $9.70/GJ | **ADL**: $9.77/GJ | **BRI**: $10.01/GJ
-* **Status:** Ex-Post (2026-05-11): **SYD**: $9.50/GJ | **ADL**: $9.32/GJ | **BRI**: $9.32/GJ
+* **Status:** Ex-Ante (2026-06-12): **SYD**: $7.96/GJ | **ADL**: $7.89/GJ | **BRI**: $7.96/GJ
+* **Status:** Ex-Post (2026-06-10): **SYD**: $7.30/GJ | **ADL**: $7.82/GJ | **BRI**: $9.09/GJ
 
 ## 3. Storage
 * **Status:** As of 2026-06-11: **Iona UGS**: 25,004 TJ | **Dandenong LNG**: 632 TJ
