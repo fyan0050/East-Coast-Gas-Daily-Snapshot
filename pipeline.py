@@ -6,6 +6,7 @@ import pandas as pd
 import zipfile
 import io
 import logging
+import re
 
 # 基础配置
 MELBOURNE_TZ = datetime.timezone(datetime.timedelta(hours=10)) # AEST
@@ -22,10 +23,13 @@ def setup_directories():
     os.makedirs(REPORT_DIR, exist_ok=True)
 
 def fetch_with_retries(url, max_retries=3, backoff_factor=2):
-    """带指数退避的下载机制 (F1要求)"""
+    """带指数退避的下载机制 (加入 User-Agent 伪装突破 AEMO 拦截)"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     for attempt in range(max_retries):
         try:
-            response = requests.get(url, timeout=15)
+            response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
             return response.content
         except requests.exceptions.RequestException as e:
@@ -43,15 +47,12 @@ def fetch_gbb_data():
     
     iona_summary = "Data unavailable"
     if content:
-        # 1. 归档原始数据
         raw_path = os.path.join(RAW_DIR, "gbb_last31.csv")
         with open(raw_path, "wb") as f:
             f.write(content)
         
-        # 2. 尝试初步解析 (P1 仅抓取 Iona 相关行)
         try:
             df = pd.read_csv(io.StringIO(content.decode('utf-8')))
-            # 注：这里仅作模糊匹配，实际列名和ID将在P2阶段从保存的raw_path中查证并固化
             iona_rows = df[df.apply(lambda row: row.astype(str).str.contains('Iona', case=False).any(), axis=1)]
             if not iona_rows.empty:
                 iona_summary = f"Found {len(iona_rows)} rows mentioning 'Iona'. Awaiting P2 exact mapping."
@@ -63,30 +64,62 @@ def fetch_gbb_data():
     return iona_summary
 
 def fetch_sttm_data():
-    """拉取 STTM 价格数据 (DAY01.ZIP)"""
-    url = "https://www.nemweb.com.au/Reports/CURRENT/STTM/DAY01.ZIP"
-    content = fetch_with_retries(url)
+    """动态拉取 STTM 目录，寻找最新的 ZIP 文件，解决硬编码失效问题"""
+    # 修正：将 CURRENT 改为首字母大写 Current，并去掉 www
+    folder_url = "https://nemweb.com.au/Reports/Current/STTM/"
+    logging.info(f"Scanning STTM directory: {folder_url}")
     
+    folder_content = fetch_with_retries(folder_url)
     sttm_summary = "Data unavailable"
+    
+    if not folder_content:
+        return "Failed to reach STTM directory. Check Github Actions log for HTTP error."
+        
+    html = folder_content.decode('utf-8', errors='ignore')
+    
+    # 使用正则解析 HTML 目录，寻找所有 ZIP 文件链接
+    zip_files = re.findall(r'href="([^"]+\.zip)"', html, re.IGNORECASE)
+    
+    if not zip_files:
+        return "Folder reached, but no ZIP files found in directory listing."
+        
+    # 寻找包含 DAY01 或 CURRENTDAY 的文件；如果没有，默认取列表最后一个（NEMWEB中通常是最新的）
+    target_zip = None
+    for zf in reversed(zip_files):
+        if 'DAY01' in zf.upper() or 'CURRENTDAY' in zf.upper():
+            target_zip = zf
+            break
+            
+    if not target_zip:
+        target_zip = zip_files[-1]
+        
+    # 拼接完整下载链接
+    if target_zip.startswith('/'):
+        download_url = f"https://nemweb.com.au{target_zip}"
+    else:
+        download_url = f"{folder_url}{target_zip}"
+        
+    logging.info(f"Dynamically found STTM ZIP target: {download_url}")
+    
+    # 再次请求下载真实的 ZIP 文件
+    content = fetch_with_retries(download_url)
     if content:
-        # 1. 归档原始数据
-        raw_path = os.path.join(RAW_DIR, "sttm_day01.zip")
+        raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
         with open(raw_path, "wb") as f:
             f.write(content)
             
-        # 2. 尝试初步解析 ZIP 寻找价格 CSV
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as z:
-                csv_files = [f for f in z.namelist() if f.endswith('.CSV')]
-                sttm_summary = f"Downloaded ZIP successfully. Contains {len(csv_files)} CSV files. "
-                sttm_summary += f"Example files: {', '.join(csv_files[:3])}. Awaiting P2 mapping."
+                csv_files = [f for f in z.namelist() if f.upper().endswith('.CSV')]
+                file_name = target_zip.split('/')[-1]
+                sttm_summary = f"Success! Downloaded {file_name}. Contains {len(csv_files)} CSV files. Awaiting P2."
         except Exception as e:
-            sttm_summary = f"Unzip/Parse error: {e}"
+            sttm_summary = f"Unzip error: {e}"
             
     return sttm_summary
 
 def generate_report(iona_status, sttm_status):
-    """生成每日 Markdown 简报 (F4 P1瘦身版)"""
+    """生成每日 Markdown 简报"""
     run_time = datetime.datetime.now(MELBOURNE_TZ).strftime('%Y-%m-%d %H:%M:%S AEST')
     
     md_content = f"""# East Coast Gas Daily Snapshot
@@ -102,21 +135,17 @@ def generate_report(iona_status, sttm_status):
 
 ## 2. Prices (STTM)
 * **Status:** {sttm_status}
-* *Raw ZIP file has been saved to `data/raw/` for structural inspection.*
 
 ## 3. Storage (Iona)
 * **Status:** {iona_status}
-* *Raw GBB CSV has been saved to `data/raw/` for structural inspection.*
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
 """
-    # 写入特定日期文件
     daily_report_path = os.path.join(REPORT_DIR, f"{TODAY_STR}.md")
     with open(daily_report_path, "w", encoding='utf-8') as f:
         f.write(md_content)
         
-    # 覆盖 latest.md
     latest_report_path = os.path.join(REPORT_DIR, "latest.md")
     with open(latest_report_path, "w", encoding='utf-8') as f:
         f.write(md_content)
