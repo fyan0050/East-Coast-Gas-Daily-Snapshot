@@ -1,12 +1,7 @@
 # East Coast Gas Daily Snapshot
 
-<<<<<<< HEAD
-**Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 23:18:47 AEST
-=======
 **Gas Date / Run Date:** 2026-06-13
-**Run Timestamp:** 2026-06-13 13:02:06 AEST
->>>>>>> fdf52ec1a0401c05a8fbf978b5ebf06458eb6e45
+**Run Timestamp:** 2026-06-13 18:13:20 AEST
 **Status:** F2 (Database Persistence Active)
 
 ---
