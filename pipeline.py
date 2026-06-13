@@ -51,8 +51,8 @@ def save_prices_to_db(records):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.executemany('''
-        INSERT OR REPLACE INTO prices (gas_date, hub, price_type, price)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO prices (gas_date, hub, price_type, price, source_file, ingested_at)
+        VALUES (?, ?, ?, ?, ?, ?)
     ''', records)
     conn.commit()
     conn.close()
@@ -63,8 +63,8 @@ def save_storage_to_db(records):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.executemany('''
-        INSERT OR REPLACE INTO storage (gas_date, facility_name, held_in_storage)
-        VALUES (?, ?, ?)
+        INSERT OR REPLACE INTO storage (gas_date, facility_id, held_in_storage, source_file, ingested_at)
+        VALUES (?, ?, ?, ?, ?)
     ''', records)
     conn.commit()
     conn.close()
@@ -75,8 +75,8 @@ def save_flows_to_db(records):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.executemany('''
-        INSERT OR REPLACE INTO flows (gas_date, facility_name, supply, transfer_in, transfer_out)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO flows (gas_date, facility_id, facility_type, supply, transfer_in, transfer_out, source_file, ingested_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ''', records)
     conn.commit()
     conn.close()
@@ -101,7 +101,7 @@ def fetch_gbb_data():
             f.write(content)
         
         try:
-            with open("facilities.yaml", "r") as ymlfile:
+            with open("facilities.yaml", "r", encoding="utf-8") as ymlfile:
                 facilities = yaml.safe_load(ymlfile)
             
             df = pd.read_csv(io.StringIO(content.decode('utf-8')))
@@ -110,6 +110,10 @@ def fetch_gbb_data():
             latest_date_str = latest_date_dt.strftime('%Y-%m-%d')
             today_df = df[df['GasDate_dt'] == latest_date_dt]
             
+            # 定义审计字段 (UTC 时间)
+            ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            source_file = "gbb_last31.csv"
+            
             # 1. 储气库
             storage_results = []
             for k, v in facilities.get('storage', {}).items():
@@ -117,7 +121,8 @@ def fetch_gbb_data():
                 if not f_data.empty:
                     val = float(f_data['HeldInStorage'].sum())
                     storage_results.append(f"**{v['name']}**: {val:,.0f} TJ")
-                    storage_records.append((latest_date_str, v['name'], val))
+                    # 入库：gas_date, facility_id, value, source_file, ingested_at
+                    storage_records.append((latest_date_str, v['id'], val, source_file, ingested_at))
                 else:
                     storage_results.append(f"**{v['name']}**: N/A")
             gbb_summary["storage"] = f"As of {latest_date_str}: " + " | ".join(storage_results)
@@ -130,7 +135,8 @@ def fetch_gbb_data():
                 if not f_data.empty:
                     val = float(f_data['Supply'].sum())
                     flow_results.append(f"* **{v['name']}** (Production): {val:,.0f} TJ")
-                    flows_records.append((latest_date_str, v['name'], val, 0.0, 0.0))
+                    # 入库增加 facility_type: 'production'
+                    flows_records.append((latest_date_str, v['id'], 'production', val, 0.0, 0.0, source_file, ingested_at))
                 else:
                     flow_results.append(f"* **{v['name']}** (Production): N/A")
 
@@ -139,7 +145,8 @@ def fetch_gbb_data():
                 if not f_data.empty:
                     val = float(f_data['Demand'].sum())
                     flow_results.append(f"* **{v['name']}** (LNG Export): {val:,.0f} TJ")
-                    flows_records.append((latest_date_str, v['name'], 0.0, 0.0, val)) # 记入流出
+                    # 入库增加 facility_type: 'lng_export'
+                    flows_records.append((latest_date_str, v['id'], 'lng_export', 0.0, 0.0, val, source_file, ingested_at)) 
                 else:
                     flow_results.append(f"* **{v['name']}** (LNG Export): N/A")
                     
@@ -149,7 +156,8 @@ def fetch_gbb_data():
                     t_in = float(f_data['TransferIn'].sum() + f_data['Supply'].sum())
                     t_out = float(f_data['TransferOut'].sum() + f_data['Demand'].sum())
                     flow_results.append(f"* **{v['name']}** (Pipeline): Flow In {t_in:,.0f} TJ | Flow Out {t_out:,.0f} TJ")
-                    flows_records.append((latest_date_str, v['name'], 0.0, t_in, t_out))
+                    # 入库增加 facility_type: 'pipeline'
+                    flows_records.append((latest_date_str, v['id'], 'pipeline', 0.0, t_in, t_out, source_file, ingested_at))
                 else:
                     flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
                     
@@ -213,7 +221,7 @@ def fetch_sttm_data():
         f.write(valid_content)
             
     try:
-        with open("facilities.yaml", "r") as ymlfile:
+        with open("facilities.yaml", "r", encoding="utf-8") as ymlfile:
             facilities = yaml.safe_load(ymlfile)
         hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
         
@@ -225,6 +233,10 @@ def fetch_sttm_data():
                 elif filename.startswith('int657_'):
                     int657_dfs.append(pd.read_csv(z.open(filename)))
         
+        # 捕获刚刚下载的文件名作为审计来源
+        source_file_sttm = target_zip.split('/')[-1] if target_zip else "unknown_sttm.zip"
+        ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
         def process_price_dfs(dfs, date_col, price_col, label, price_type):
             if not dfs: return f"{label}: Not found.", []
             
@@ -241,7 +253,8 @@ def fetch_sttm_data():
                 if not hub_data.empty:
                     price = float(hub_data.iloc[-1][price_col])
                     results.append(f"**{hub}**: ${price:.2f}/GJ")
-                    db_rows.append((latest_date.strftime('%Y-%m-%d'), hub, price_type, price))
+                    # 入库：加入源文件和时间戳
+                    db_rows.append((latest_date.strftime('%Y-%m-%d'), hub, price_type, price, source_file_sttm, ingested_at))
                 else:
                     results.append(f"**{hub}**: N/A")
             return f"{label} ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results), db_rows
