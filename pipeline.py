@@ -104,64 +104,104 @@ def fetch_gbb_data():
             with open("facilities.yaml", "r", encoding="utf-8") as ymlfile:
                 facilities = yaml.safe_load(ymlfile)
             
-            df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+            # =====================================================================
+            # 1. 基础数据准备 (对齐时区与路径)
+            # =====================================================================
+            df = pd.read_csv(csv_path)
             df['GasDate_dt'] = pd.to_datetime(df['GasDate'])
+            
+            # 找出本批次文件里的最新业务日期，用于稍后生成日报
             latest_date_dt = df['GasDate_dt'].max()
             latest_date_str = latest_date_dt.strftime('%Y-%m-%d')
-            today_df = df[df['GasDate_dt'] == latest_date_dt]
             
-            # 定义审计字段 (UTC 时间)
+            storage_records = []
+            flows_records = []
             ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            source_file = "gbb_last31.csv"
+
+            # =====================================================================
+            # 核心解耦点 A：每天对滚动窗口内的【整整 31 天】数据进行解析与全量准备
+            # =====================================================================
+            print("⏳ 正在解析 AEMO 31天滚动历史窗口，准备自愈入库...")
+            for date_dt, group in df.groupby('GasDate_dt'):
+                current_loop_date_str = date_dt.strftime('%Y-%m-%d')
+
+                # Storage 解析 (31天全量)
+                for k, v in facilities.get('storage', {}).items():
+                    f_data = group[group['FacilityId'] == v['id']]
+                    if not f_data.empty:
+                        val = float(f_data['HeldInStorage'].sum())
+                        storage_records.append((current_loop_date_str, v['id'], val, source_file, ingested_at))
+
+                # Production 解析 (31天全量)
+                for k, v in facilities.get('production', {}).items():
+                    f_data = group[group['FacilityId'] == v['id']]
+                    if not f_data.empty:
+                        val = float(f_data['Supply'].sum())
+                        flows_records.append((current_loop_date_str, v['id'], 'production', val, 0.0, 0.0, source_file, ingested_at))
+
+                # Demand 解析 (31天全量)
+                for k, v in facilities.get('demand', {}).items():
+                    f_data = group[group['FacilityId'] == v['id']]
+                    if not f_data.empty:
+                        val = float(f_data['Demand'].sum())
+                        flows_records.append((current_loop_date_str, v['id'], 'lng_export', 0.0, 0.0, val, source_file, ingested_at))
+
+                # Pipelines 解析 (31天全量)
+                for k, v in facilities.get('pipelines', {}).items():
+                    f_data = group[group['FacilityId'] == v['id']]
+                    if not f_data.empty:
+                        t_in = float(f_data['TransferIn'].sum() + f_data['Supply'].sum())
+                        t_out = float(f_data['TransferOut'].sum() + f_data['Demand'].sum())
+                        flows_records.append((current_loop_date_str, v['id'], 'pipeline', 0.0, t_in, t_out, source_file, ingested_at))
+
+            # =====================================================================
+            # 核心解耦点 B：仅截取【最新一天】的数据，拼接成今日日报的 text 文本
+            # =====================================================================
+            print(f"📝 正在截取最新发布日 [{latest_date_str}] 的明细快照生成日报摘要...")
+            today_group = df[df['GasDate_dt'] == latest_date_dt]
             
-            # 1. 储气库
             storage_results = []
             for k, v in facilities.get('storage', {}).items():
-                f_data = today_df[today_df['FacilityId'] == v['id']]
-                if not f_data.empty:
-                    val = float(f_data['HeldInStorage'].sum())
-                    storage_results.append(f"**{v['name']}**: {val:,.0f} TJ")
-                    # 入库：gas_date, facility_id, value, source_file, ingested_at
-                    storage_records.append((latest_date_str, v['id'], val, source_file, ingested_at))
-                else:
-                    storage_results.append(f"**{v['name']}**: N/A")
-            gbb_summary["storage"] = f"As of {latest_date_str}: " + " | ".join(storage_results)
-            
-            # 2. 流向数据
-            flow_results = []
-            
-            for k, v in facilities.get('production', {}).items():
-                f_data = today_df[today_df['FacilityId'] == v['id']]
-                if not f_data.empty:
-                    val = float(f_data['Supply'].sum())
-                    flow_results.append(f"* **{v['name']}** (Production): {val:,.0f} TJ")
-                    # 入库增加 facility_type: 'production'
-                    flows_records.append((latest_date_str, v['id'], 'production', val, 0.0, 0.0, source_file, ingested_at))
-                else:
-                    flow_results.append(f"* **{v['name']}** (Production): N/A")
+                f_data = today_group[today_group['FacilityId'] == v['id']]
+                val = float(f_data['HeldInStorage'].sum()) if not f_data.empty else None
+                storage_results.append(f"* **{v['name']}**: {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+            gbb_summary["storage"] = f"As of {latest_date_str}:\n" + "\n".join(storage_results)
 
+            flow_results = []
+            # Production
+            for k, v in facilities.get('production', {}).items():
+                f_data = today_group[today_group['FacilityId'] == v['id']]
+                val = float(f_data['Supply'].sum()) if not f_data.empty else None
+                flow_results.append(f"* **{v['name']}** (Production): {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+            # Demand
             for k, v in facilities.get('demand', {}).items():
-                f_data = today_df[today_df['FacilityId'] == v['id']]
-                if not f_data.empty:
-                    val = float(f_data['Demand'].sum())
-                    flow_results.append(f"* **{v['name']}** (LNG Export): {val:,.0f} TJ")
-                    # 入库增加 facility_type: 'lng_export'
-                    flows_records.append((latest_date_str, v['id'], 'lng_export', 0.0, 0.0, val, source_file, ingested_at)) 
-                else:
-                    flow_results.append(f"* **{v['name']}** (LNG Export): N/A")
-                    
+                f_data = today_group[today_group['FacilityId'] == v['id']]
+                val = float(f_data['Demand'].sum()) if not f_data.empty else None
+                flow_results.append(f"* **{v['name']}** (LNG Export): {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+            # Pipelines
             for k, v in facilities.get('pipelines', {}).items():
-                f_data = today_df[today_df['FacilityId'] == v['id']]
+                f_data = today_group[today_group['FacilityId'] == v['id']]
                 if not f_data.empty:
                     t_in = float(f_data['TransferIn'].sum() + f_data['Supply'].sum())
                     t_out = float(f_data['TransferOut'].sum() + f_data['Demand'].sum())
                     flow_results.append(f"* **{v['name']}** (Pipeline): Flow In {t_in:,.0f} TJ | Flow Out {t_out:,.0f} TJ")
-                    # 入库增加 facility_type: 'pipeline'
-                    flows_records.append((latest_date_str, v['id'], 'pipeline', 0.0, t_in, t_out, source_file, ingested_at))
                 else:
                     flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
-                    
             gbb_summary["flows"] = f"As of {latest_date_str}:\n" + "\n".join(flow_results)
+
+            # =====================================================================
+            # 3. 执行最终的数据库持久化 (必须确保是 INSERT OR REPLACE)
+            # =====================================================================
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            
+            # 这里的 31 天全量数据由于执行了 REPLACE，若遭遇历史修订值，会引发底层 trigger 写入审计日志
+            cursor.executemany('INSERT OR REPLACE INTO storage (gas_date, facility_id, held_in_storage, source_file, ingested_at) VALUES (?, ?, ?, ?, ?)', storage_records)
+            cursor.executemany('INSERT OR REPLACE INTO flows (gas_date, facility_id, facility_type, supply, transfer_in, transfer_out, source_file, ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', flows_records)
+            
+            conn.commit()
+            conn.close()
+            logging.info(f"Successfully processed rolling window. Ingested {len(storage_records)} storage rows and {len(flows_records)} flow rows.")
             
         except Exception as e:
             error_msg = f"Parse error: {e}"

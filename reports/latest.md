@@ -1,12 +1,7 @@
 # East Coast Gas Daily Snapshot
 
-<<<<<<< HEAD
-**Gas Date / Run Date:** 2026-06-12
-**Run Timestamp:** 2026-06-12 23:18:47 AEST
-=======
 **Gas Date / Run Date:** 2026-06-13
-**Run Timestamp:** 2026-06-13 13:02:06 AEST
->>>>>>> fdf52ec1a0401c05a8fbf978b5ebf06458eb6e45
+**Run Timestamp:** 2026-06-13 18:57:46 AEST
 **Status:** F2 (Database Persistence Active)
 
 ---
@@ -19,17 +14,10 @@
 * **Status:** Ex-Post (2026-06-11): **SYD**: $7.69/GJ | **ADL**: $7.11/GJ | **BRI**: $9.16/GJ
 
 ## 3. Storage
-* **Status:** As of 2026-06-12: **Iona UGS**: 25,052 TJ | **Dandenong LNG**: 630 TJ
+* **Status:** Parse error: name 'csv_path' is not defined
 
 ## 4. Flows (Major Facilities & Pipelines)
-As of 2026-06-12:
-* **Longford** (Production): 626 TJ
-* **Moomba** (Production): 224 TJ
-* **GLNG (Curtis Island)** (LNG Export): 751 TJ
-* **QCLNG (Curtis Island)** (LNG Export): 1,466 TJ
-* **APLNG (Curtis Island)** (LNG Export): N/A
-* **EGP** (Pipeline): Flow In 250 TJ | Flow Out 256 TJ
-* **SWQP** (Pipeline): Flow In 451 TJ | Flow Out 369 TJ
+Parse error: name 'csv_path' is not defined
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
