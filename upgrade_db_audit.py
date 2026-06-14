@@ -69,7 +69,16 @@ def init_audit_system():
             VALUES ('flows', OLD.gas_date, OLD.facility_id, 'transfer_out', OLD.transfer_out, NEW.transfer_out, datetime('now'));
         END;
     ''')
-
+    cursor.execute('''
+        CREATE TRIGGER IF NOT EXISTS audit_flows_demand_update
+        AFTER UPDATE ON flows
+        FOR EACH ROW
+        WHEN OLD.demand <> NEW.demand
+        BEGIN
+            INSERT INTO data_revisions (table_name, gas_date, facility_id, metric_name, old_value, new_value, changed_at)
+            VALUES ('flows', OLD.gas_date, OLD.facility_id, 'demand', OLD.demand, NEW.demand, datetime('now'));
+        END;
+    ''')
     conn.commit()
     conn.close()
     print("✅ 数据库审计追踪系统部署完毕！触发器已在底层隐形实时监控。")

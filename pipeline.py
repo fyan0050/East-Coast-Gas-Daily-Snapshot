@@ -1,330 +1,366 @@
 import os
-import datetime
+import sys
+import io
+import re
 import time
+import zipfile
+import logging
+import datetime
+
 import requests
 import pandas as pd
-import zipfile
-import io
-import logging
-import re
 import yaml
 import sqlite3
 
+# ==========================================
 # 基础配置
-MELBOURNE_TZ = datetime.timezone(datetime.timedelta(hours=10)) # AEST
+# ==========================================
+try:
+    from zoneinfo import ZoneInfo
+    MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
+except ImportError:
+    MELBOURNE_TZ = datetime.timezone(datetime.timedelta(hours=10))
+
 TODAY_DT = datetime.datetime.now(MELBOURNE_TZ)
 TODAY_STR = TODAY_DT.strftime('%Y-%m-%d')
 RAW_DIR = f"data/raw/{TODAY_STR}"
 REPORT_DIR = "reports"
 DB_PATH = "data/processed/east_coast_gas.db"
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+GBB_URL = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
+STTM_FOLDER_URL = "https://nemweb.com.au/Reports/Current/STTM/"
 
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+PIPELINE_ERRORS = []
+
+# 表结构假定（建表在本文件之外）：
+#   storage(gas_date, facility_id, held_in_storage, source_file, ingested_at)
+#           UNIQUE(gas_date, facility_id)
+#   flows(gas_date, facility_id, facility_type, supply, demand, transfer_in,
+#         transfer_out, source_file, ingested_at)
+#           UNIQUE(gas_date, facility_id)
+#   prices(gas_date, hub, price_type, price, source_file, ingested_at)
+#           UNIQUE(gas_date, hub, price_type)
+# UNIQUE 约束是 INSERT OR REPLACE 幂等(修订自愈)的前提。
+
+# ==========================================
+# 目录
+# ==========================================
 def setup_directories():
     os.makedirs(RAW_DIR, exist_ok=True)
     os.makedirs(REPORT_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
+# ==========================================
+# 网络
+# ==========================================
 def fetch_with_retries(url, max_retries=3, backoff_factor=2):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                             "AppleWebKit/537.36 (KHTML, like Gecko) "
+                             "Chrome/120.0.0.0 Safari/537.36"}
     for attempt in range(max_retries):
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            return response.content
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            return resp.content
         except requests.exceptions.RequestException as e:
             logging.warning(f"Attempt {attempt + 1} failed for {url}: {e}")
             if attempt < max_retries - 1:
                 time.sleep(backoff_factor ** attempt)
-            else:
-                logging.error(f"All {max_retries} attempts failed for {url}")
-                return None
+    logging.error(f"All {max_retries} attempts failed for {url}")
+    return None
+
+def load_facilities():
+    with open("facilities.yaml", "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 # ==========================================
-# 数据库 Upsert 函数
+# 聚合规则
 # ==========================================
-def save_prices_to_db(records):
-    if not records: return
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.executemany('''
-        INSERT OR REPLACE INTO prices (gas_date, hub, price_type, price, source_file, ingested_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', records)
-    conn.commit()
-    conn.close()
-    logging.info(f"Saved {len(records)} price records to DB.")
+def _dedup_latest_per_location(df, point_col='LocationId', sort_col='LastUpdated'):
+    """跨 location 聚合前，先在每个 location 内取最新修订版本，防修订行被重复加。"""
+    if sort_col in df.columns and point_col in df.columns:
+        return df.sort_values(sort_col).groupby(point_col, as_index=False).last()
+    return df
 
-def save_storage_to_db(records):
-    if not records: return
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.executemany('''
-        INSERT OR REPLACE INTO storage (gas_date, facility_id, held_in_storage, source_file, ingested_at)
-        VALUES (?, ?, ?, ?, ?)
-    ''', records)
-    conn.commit()
-    conn.close()
-    logging.info(f"Saved {len(records)} storage records to DB.")
+def storage_latest(group_df, value_col='HeldInStorage', sort_col='LastUpdated'):
+    """存量(瞬时水位)：取最新一行，绝不 sum。同设施若多 location 取全部行里最新一条。"""
+    if group_df.empty:
+        return None
+    df = group_df
+    if sort_col in df.columns:
+        df = df.sort_values(sort_col)
+    val = df.iloc[-1][value_col]
+    return None if pd.isna(val) else float(val)
 
-def save_flows_to_db(records):
-    if not records: return
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.executemany('''
-        INSERT OR REPLACE INTO flows (gas_date, facility_id, facility_type, supply, transfer_in, transfer_out, source_file, ingested_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', records)
-    conn.commit()
-    conn.close()
-    logging.info(f"Saved {len(records)} flow records to DB.")
-
+def flow_sums(group_df):
+    """流量类(production/lng_export/pipeline)：每 location 取最新版本后，四列全部跨 location 求和。
+    存量取最新、流量求和——两类规则相反。"""
+    if group_df.empty:
+        return None
+    df = _dedup_latest_per_location(group_df)
+    def s(col):
+        return float(df[col].sum()) if col in df.columns else 0.0
+    return {
+        'supply':       s('Supply'),
+        'demand':       s('Demand'),
+        'transfer_in':  s('TransferIn'),
+        'transfer_out': s('TransferOut'),
+    }
 
 # ==========================================
-# 数据提取与清洗逻辑
+# 数据库写入
+# ==========================================
+def save_storage(records):
+    if not records: return
+    conn = sqlite3.connect(DB_PATH)
+    conn.executemany(
+        'INSERT OR REPLACE INTO storage '
+        '(gas_date, facility_id, held_in_storage, source_file, ingested_at) '
+        'VALUES (?, ?, ?, ?, ?)', records)
+    conn.commit(); conn.close()
+    logging.info(f"Saved {len(records)} storage records.")
+
+def save_flows(records):
+    if not records: return
+    conn = sqlite3.connect(DB_PATH)
+    conn.executemany(
+        'INSERT OR REPLACE INTO flows '
+        '(gas_date, facility_id, facility_type, supply, demand, transfer_in, '
+        ' transfer_out, source_file, ingested_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', records)
+    conn.commit(); conn.close()
+    logging.info(f"Saved {len(records)} flow records.")
+
+def save_prices(records):
+    if not records: return
+    conn = sqlite3.connect(DB_PATH)
+    conn.executemany(
+        'INSERT OR REPLACE INTO prices '
+        '(gas_date, hub, price_type, price, source_file, ingested_at) '
+        'VALUES (?, ?, ?, ?, ?, ?)', records)
+    conn.commit(); conn.close()
+    logging.info(f"Saved {len(records)} price records.")
+
+# ==========================================
+# GBB：库存与流量（入库前聚合到 facility 粒度）
 # ==========================================
 def fetch_gbb_data():
-    """拉取 GBB 数据，返回 Markdown 报告字符串和 DB 插入元组"""
-    url = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
-    content = fetch_with_retries(url)
-    
     gbb_summary = {"storage": "Data unavailable", "flows": "Data unavailable"}
-    storage_records = []
-    flows_records = []
-    
-    if content:
-        raw_path = os.path.join(RAW_DIR, "gbb_last31.csv")
-        with open(raw_path, "wb") as f:
-            f.write(content)
-        
-        try:
-            with open("facilities.yaml", "r", encoding="utf-8") as ymlfile:
-                facilities = yaml.safe_load(ymlfile)
-            
-            # =====================================================================
-            # 1. 基础数据准备 (对齐时区与路径)
-            # =====================================================================
-            df = pd.read_csv(csv_path)
-            df['GasDate_dt'] = pd.to_datetime(df['GasDate'])
-            
-            # 找出本批次文件里的最新业务日期，用于稍后生成日报
-            latest_date_dt = df['GasDate_dt'].max()
-            latest_date_str = latest_date_dt.strftime('%Y-%m-%d')
-            
-            storage_records = []
-            flows_records = []
-            ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    storage_records, flows_records = [], []
 
-            # =====================================================================
-            # 核心解耦点 A：每天对滚动窗口内的【整整 31 天】数据进行解析与全量准备
-            # =====================================================================
-            print("⏳ 正在解析 AEMO 31天滚动历史窗口，准备自愈入库...")
-            for date_dt, group in df.groupby('GasDate_dt'):
-                current_loop_date_str = date_dt.strftime('%Y-%m-%d')
+    content = fetch_with_retries(GBB_URL)
+    if not content:
+        PIPELINE_ERRORS.append("GBB download failed (network).")
+        return gbb_summary, storage_records, flows_records
 
-                # Storage 解析 (31天全量)
-                for k, v in facilities.get('storage', {}).items():
-                    f_data = group[group['FacilityId'] == v['id']]
-                    if not f_data.empty:
-                        val = float(f_data['HeldInStorage'].sum())
-                        storage_records.append((current_loop_date_str, v['id'], val, source_file, ingested_at))
+    raw_path = os.path.join(RAW_DIR, "gbb_last31.csv")
+    with open(raw_path, "wb") as f:
+        f.write(content)
 
-                # Production 解析 (31天全量)
-                for k, v in facilities.get('production', {}).items():
-                    f_data = group[group['FacilityId'] == v['id']]
-                    if not f_data.empty:
-                        val = float(f_data['Supply'].sum())
-                        flows_records.append((current_loop_date_str, v['id'], 'production', val, 0.0, 0.0, source_file, ingested_at))
+    source_file = "GasBBActualFlowStorageLast31.CSV"
+    ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-                # Demand 解析 (31天全量)
-                for k, v in facilities.get('demand', {}).items():
-                    f_data = group[group['FacilityId'] == v['id']]
-                    if not f_data.empty:
-                        val = float(f_data['Demand'].sum())
-                        flows_records.append((current_loop_date_str, v['id'], 'lng_export', 0.0, 0.0, val, source_file, ingested_at))
+    try:
+        fac = load_facilities()
+        df = pd.read_csv(raw_path)
+        df['GasDate_dt'] = pd.to_datetime(df['GasDate'])
+        latest_dt = df['GasDate_dt'].max()
+        latest_str = latest_dt.strftime('%Y-%m-%d')
 
-                # Pipelines 解析 (31天全量)
-                for k, v in facilities.get('pipelines', {}).items():
-                    f_data = group[group['FacilityId'] == v['id']]
-                    if not f_data.empty:
-                        t_in = float(f_data['TransferIn'].sum() + f_data['Supply'].sum())
-                        t_out = float(f_data['TransferOut'].sum() + f_data['Demand'].sum())
-                        flows_records.append((current_loop_date_str, v['id'], 'pipeline', 0.0, t_in, t_out, source_file, ingested_at))
+        def fid(v):
+            return str(v['id'])
 
-            # =====================================================================
-            # 核心解耦点 B：仅截取【最新一天】的数据，拼接成今日日报的 text 文本
-            # =====================================================================
-            print(f"📝 正在截取最新发布日 [{latest_date_str}] 的明细快照生成日报摘要...")
-            today_group = df[df['GasDate_dt'] == latest_date_dt]
-            
-            storage_results = []
-            for k, v in facilities.get('storage', {}).items():
-                f_data = today_group[today_group['FacilityId'] == v['id']]
-                val = float(f_data['HeldInStorage'].sum()) if not f_data.empty else None
-                storage_results.append(f"* **{v['name']}**: {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
-            gbb_summary["storage"] = f"As of {latest_date_str}:\n" + "\n".join(storage_results)
+        # ---------- 全量解析 31 天滚动窗口，聚合后入库 ----------
+        for date_dt, group in df.groupby('GasDate_dt'):
+            d_str = date_dt.strftime('%Y-%m-%d')
+            group = group.copy()
+            group['FacilityId'] = group['FacilityId'].astype(str)
 
-            flow_results = []
-            # Production
-            for k, v in facilities.get('production', {}).items():
-                f_data = today_group[today_group['FacilityId'] == v['id']]
-                val = float(f_data['Supply'].sum()) if not f_data.empty else None
-                flow_results.append(f"* **{v['name']}** (Production): {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
-            # Demand
-            for k, v in facilities.get('demand', {}).items():
-                f_data = today_group[today_group['FacilityId'] == v['id']]
-                val = float(f_data['Demand'].sum()) if not f_data.empty else None
-                flow_results.append(f"* **{v['name']}** (LNG Export): {f'{val:,.0f} TJ' if val is not None else 'N/A'}")
-            # Pipelines
-            for k, v in facilities.get('pipelines', {}).items():
-                f_data = today_group[today_group['FacilityId'] == v['id']]
-                if not f_data.empty:
-                    t_in = float(f_data['TransferIn'].sum() + f_data['Supply'].sum())
-                    t_out = float(f_data['TransferOut'].sum() + f_data['Demand'].sum())
-                    flow_results.append(f"* **{v['name']}** (Pipeline): Flow In {t_in:,.0f} TJ | Flow Out {t_out:,.0f} TJ")
-                else:
-                    flow_results.append(f"* **{v['name']}** (Pipeline): N/A")
-            gbb_summary["flows"] = f"As of {latest_date_str}:\n" + "\n".join(flow_results)
+            for _, v in fac.get('storage', {}).items():
+                sub = group[group['FacilityId'] == fid(v)]
+                val = storage_latest(sub)
+                if val is not None:
+                    storage_records.append((d_str, fid(v), val, source_file, ingested_at))
 
-            # =====================================================================
-            # 3. 执行最终的数据库持久化 (必须确保是 INSERT OR REPLACE)
-            # =====================================================================
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            
-            # 这里的 31 天全量数据由于执行了 REPLACE，若遭遇历史修订值，会引发底层 trigger 写入审计日志
-            cursor.executemany('INSERT OR REPLACE INTO storage (gas_date, facility_id, held_in_storage, source_file, ingested_at) VALUES (?, ?, ?, ?, ?)', storage_records)
-            cursor.executemany('INSERT OR REPLACE INTO flows (gas_date, facility_id, facility_type, supply, transfer_in, transfer_out, source_file, ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', flows_records)
-            
-            conn.commit()
-            conn.close()
-            logging.info(f"Successfully processed rolling window. Ingested {len(storage_records)} storage rows and {len(flows_records)} flow rows.")
-            
-        except Exception as e:
-            error_msg = f"Parse error: {e}"
-            gbb_summary["storage"] = error_msg
-            gbb_summary["flows"] = error_msg
-            
+            for ftype, key in [('production', 'production'),
+                               ('lng_export', 'demand'),
+                               ('pipeline', 'pipelines')]:
+                for _, v in fac.get(key, {}).items():
+                    sub = group[group['FacilityId'] == fid(v)]
+                    fs = flow_sums(sub)
+                    if fs is not None:
+                        flows_records.append((
+                            d_str, fid(v), ftype,
+                            fs['supply'], fs['demand'], fs['transfer_in'], fs['transfer_out'],
+                            source_file, ingested_at))
+
+        # ---------- 最新一天 → 日报文本 ----------
+        today = df.copy()
+        today['FacilityId'] = today['FacilityId'].astype(str)
+        today = today[today['GasDate_dt'] == latest_dt]
+
+        storage_lines = []
+        for _, v in fac.get('storage', {}).items():
+            val = storage_latest(today[today['FacilityId'] == fid(v)])
+            storage_lines.append(f"* **{v['name']}**: "
+                                 f"{f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+        gbb_summary["storage"] = f"As of {latest_str}:\n" + "\n".join(storage_lines)
+
+        flow_lines = []
+        for _, v in fac.get('production', {}).items():
+            fs = flow_sums(today[today['FacilityId'] == fid(v)])
+            val = fs['supply'] if fs else None
+            flow_lines.append(f"* **{v['name']}** (Production): "
+                              f"{f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+        for _, v in fac.get('demand', {}).items():
+            fs = flow_sums(today[today['FacilityId'] == fid(v)])
+            val = fs['demand'] if fs else None
+            flow_lines.append(f"* **{v['name']}** (LNG Export): "
+                              f"{f'{val:,.0f} TJ' if val is not None else 'N/A'}")
+        for _, v in fac.get('pipelines', {}).items():
+            fs = flow_sums(today[today['FacilityId'] == fid(v)])
+            if fs is not None:
+                # 管道展示对齐 AEMO dashboard：Actual Demand=demand, Actual TransferOut=transfer_out
+                flow_lines.append(f"* **{v['name']}** (Pipeline): "
+                                  f"Actual Demand {fs['demand']:,.0f} TJ | "
+                                  f"Actual TransferOut {fs['transfer_out']:,.0f} TJ")
+            else:
+                flow_lines.append(f"* **{v['name']}** (Pipeline): N/A")
+        gbb_summary["flows"] = (f"As of {latest_str} "
+                                f"(pipeline figures aligned to AEMO GBB dashboard):\n"
+                                + "\n".join(flow_lines))
+
+        save_storage(storage_records)
+        save_flows(flows_records)
+        logging.info(f"GBB OK. storage={len(storage_records)} flows={len(flows_records)}")
+
+    except Exception as e:
+        logging.exception("GBB parse/persist error")
+        PIPELINE_ERRORS.append(f"GBB parse error: {e}")
+        gbb_summary["storage"] = f"Parse error: {e}"
+        gbb_summary["flows"] = f"Parse error: {e}"
+
     return gbb_summary, storage_records, flows_records
 
+# ==========================================
+# STTM：枢纽价格
+# ==========================================
+def _parse_sttm_zip(content):
+    ante, post, max_date = [], [], None
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        for fn in z.namelist():
+            low = fn.lower()
+            if low.startswith('int651_'):
+                ante.append(pd.read_csv(z.open(fn)))
+            elif low.startswith('int657_'):
+                post.append(pd.read_csv(z.open(fn)))
+        for d in ante + post:
+            if 'gas_date' in d.columns:
+                md = pd.to_datetime(d['gas_date']).max().date()
+                max_date = md if max_date is None else max(max_date, md)
+    return ante, post, max_date
+
 def fetch_sttm_data():
-    """拉取 STTM 目录，包含防幽灵数据（Stale Data）补丁"""
-    folder_url = "https://nemweb.com.au/Reports/Current/STTM/"
-    folder_content = fetch_with_retries(folder_url)
-    
-    sttm_summary = "Data unavailable"
     sttm_records = []
-    
-    if not folder_content:
+    folder = fetch_with_retries(STTM_FOLDER_URL)
+    if not folder:
+        PIPELINE_ERRORS.append("STTM directory unreachable (network).")
         return "Failed to reach STTM directory.", []
-        
-    html = folder_content.decode('utf-8', errors='ignore')
+
+    html = folder.decode('utf-8', errors='ignore')
     zip_files = re.findall(r'href="([^"]+\.zip)"', html, re.IGNORECASE)
-    
     if not zip_files:
+        PIPELINE_ERRORS.append("STTM: no ZIP files listed.")
         return "No ZIP files found.", []
-        
-    # 构建最近 3 天的文件名探针
-    days_to_try = [TODAY_DT, TODAY_DT - datetime.timedelta(days=1), TODAY_DT - datetime.timedelta(days=2)]
-    valid_content = None
-    
-    for dt in days_to_try:
-        candidate_name = f"Day{dt.day:02d}.zip"
-        target_zip = next((zf for zf in zip_files if zf.upper().endswith(candidate_name.upper())), None)
-        
-        if target_zip:
-            download_url = f"https://nemweb.com.au{target_zip}" if target_zip.startswith('/') else f"{folder_url}{target_zip}"
-            content = fetch_with_retries(download_url)
-            if content:
-                try:
-                    with zipfile.ZipFile(io.BytesIO(content)) as z:
-                        int651_files = [f for f in z.namelist() if f.startswith('int651_')]
-                        if int651_files:
-                            df_peek = pd.read_csv(z.open(int651_files[0]), nrows=5)
-                            df_peek['gas_date_dt'] = pd.to_datetime(df_peek['gas_date'])
-                            peek_date = df_peek['gas_date_dt'].max().date()
-                            days_old = (TODAY_DT.date() - peek_date).days
-                            if -2 <= days_old <= 5:
-                                valid_content = content
-                                break
-                except Exception as e:
-                    logging.warning(f"Peek error {candidate_name}: {e}")
-                    
-    if not valid_content:
+
+    best = None
+    candidates = sorted(set(zip_files), key=lambda z: (0 if 'CURRENTDAY' in z.upper() else 1))
+    for zf in candidates:
+        url = f"https://nemweb.com.au{zf}" if zf.startswith('/') else f"{STTM_FOLDER_URL}{zf}"
+        content = fetch_with_retries(url)
+        if not content:
+            continue
+        try:
+            _, _, md = _parse_sttm_zip(content)
+        except Exception as e:
+            logging.warning(f"STTM peek failed {zf}: {e}")
+            continue
+        if md is None:
+            continue
+        days_old = (TODAY_DT.date() - md).days
+        if -2 <= days_old <= 5:
+            if best is None or md > best[0]:
+                best = (md, content, zf.split('/')[-1])
+            if 'CURRENTDAY' in zf.upper():
+                break
+
+    if best is None:
+        PIPELINE_ERRORS.append("STTM: no fresh data within window.")
         return "Failed to find fresh STTM data (within 5 days).", []
-        
-    raw_path = os.path.join(RAW_DIR, "sttm_raw.zip")
-    with open(raw_path, "wb") as f:
+
+    _, valid_content, source_file_sttm = best
+    with open(os.path.join(RAW_DIR, "sttm_raw.zip"), "wb") as f:
         f.write(valid_content)
-            
+
     try:
-        with open("facilities.yaml", "r", encoding="utf-8") as ymlfile:
-            facilities = yaml.safe_load(ymlfile)
-        hub_ids = [v['id'] for k, v in facilities.get('hubs', {}).items()]
-        
-        int651_dfs, int657_dfs = [], []
-        with zipfile.ZipFile(io.BytesIO(valid_content)) as z:
-            for filename in z.namelist():
-                if filename.startswith('int651_'):
-                    int651_dfs.append(pd.read_csv(z.open(filename)))
-                elif filename.startswith('int657_'):
-                    int657_dfs.append(pd.read_csv(z.open(filename)))
-        
-        # 捕获刚刚下载的文件名作为审计来源
-        source_file_sttm = target_zip.split('/')[-1] if target_zip else "unknown_sttm.zip"
+        fac = load_facilities()
+        hub_ids = [v['id'] for _, v in fac.get('hubs', {}).items()]
+        int651_dfs, int657_dfs, _ = _parse_sttm_zip(valid_content)
         ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-        def process_price_dfs(dfs, date_col, price_col, label, price_type):
-            if not dfs: return f"{label}: Not found.", []
-            
+        def process(dfs, price_col, label, price_type):
+            if not dfs:
+                return f"{label}: Not found.", []
             df = pd.concat(dfs, ignore_index=True)
-            df['gas_date_dt'] = pd.to_datetime(df[date_col])
-            df = df.sort_values('report_datetime') 
-            latest_date = df['gas_date_dt'].max()
-            today_df = df[df['gas_date_dt'] == latest_date]
-            
-            results = []
-            db_rows = []
+            df['gas_date_dt'] = pd.to_datetime(df['gas_date'])
+            if 'report_datetime' in df.columns:
+                df = df.sort_values('report_datetime')
+            latest = df['gas_date_dt'].max()
+            today = df[df['gas_date_dt'] == latest]
+            res, rows = [], []
             for hub in hub_ids:
-                hub_data = today_df[today_df['hub_identifier'] == hub]
-                if not hub_data.empty:
-                    price = float(hub_data.iloc[-1][price_col])
-                    results.append(f"**{hub}**: ${price:.2f}/GJ")
-                    # 入库：加入源文件和时间戳
-                    db_rows.append((latest_date.strftime('%Y-%m-%d'), hub, price_type, price, source_file_sttm, ingested_at))
+                hd = today[today['hub_identifier'] == hub]
+                if not hd.empty:
+                    price = float(hd.iloc[-1][price_col])
+                    res.append(f"**{hub}**: ${price:.2f}/GJ")
+                    rows.append((latest.strftime('%Y-%m-%d'), hub, price_type,
+                                 price, source_file_sttm, ingested_at))
                 else:
-                    results.append(f"**{hub}**: N/A")
-            return f"{label} ({latest_date.strftime('%Y-%m-%d')}): " + " | ".join(results), db_rows
+                    res.append(f"**{hub}**: N/A")
+            return (f"{label} ({latest.strftime('%Y-%m-%d')}): " + " | ".join(res)), rows
 
-        ante_summary, ante_rows = process_price_dfs(int651_dfs, 'gas_date', 'ex_ante_market_price', 'Ex-Ante', 'Ex-Ante')
-        post_summary, post_rows = process_price_dfs(int657_dfs, 'gas_date', 'ex_post_imbalance_price', 'Ex-Post', 'Ex-Post')
-        
-        sttm_records.extend(ante_rows)
-        sttm_records.extend(post_rows)
-        sttm_summary = f"{ante_summary}\n* **Status:** {post_summary}"
-            
+        ante_s, ante_r = process(int651_dfs, 'ex_ante_market_price', 'Ex-Ante', 'Ex-Ante')
+        post_s, post_r = process(int657_dfs, 'ex_post_imbalance_price', 'Ex-Post', 'Ex-Post')
+
+        sttm_records.extend(ante_r)
+        sttm_records.extend(post_r)
+        save_prices(sttm_records)
+        logging.info(f"STTM OK. prices={len(sttm_records)}")
+        return f"{ante_s}\n* **Status:** {post_s}", sttm_records
+
     except Exception as e:
-        sttm_summary = f"Parse error: {e}"
-        
-    return sttm_summary, sttm_records
+        logging.exception("STTM parse/persist error")
+        PIPELINE_ERRORS.append(f"STTM parse error: {e}")
+        return f"Parse error: {e}", []
 
+# ==========================================
+# 报告
+# ==========================================
 def generate_report(gbb_data, sttm_status):
-    """生成每日 Markdown 简报"""
-    run_time = datetime.datetime.now(MELBOURNE_TZ).strftime('%Y-%m-%d %H:%M:%S AEST')
-    
-    md_content = f"""# East Coast Gas Daily Snapshot
+    run_time = datetime.datetime.now(MELBOURNE_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+    health = "OK" if not PIPELINE_ERRORS else "DEGRADED: " + "; ".join(PIPELINE_ERRORS)
+
+    md = f"""# East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** {TODAY_STR}
 **Run Timestamp:** {run_time}
-**Status:** F2 (Database Persistence Active)
+**Pipeline health:** {health}
 
 ---
 
 ## 1. Anomaly Summary
-* Pipeline is in F2 phase. Historical data is now being stored locally.
+* (anomaly module pending)
 
 ## 2. Prices (STTM)
 * **Status:** {sttm_status}
@@ -338,31 +374,29 @@ def generate_report(gbb_data, sttm_status):
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
 """
-    daily_report_path = os.path.join(REPORT_DIR, f"{TODAY_STR}.md")
-    with open(daily_report_path, "w", encoding='utf-8') as f:
-        f.write(md_content)
-        
-    latest_report_path = os.path.join(REPORT_DIR, "latest.md")
-    with open(latest_report_path, "w", encoding='utf-8') as f:
-        f.write(md_content)
+    with open(os.path.join(REPORT_DIR, f"{TODAY_STR}.md"), "w", encoding='utf-8') as f:
+        f.write(md)
+    with open(os.path.join(REPORT_DIR, "latest.md"), "w", encoding='utf-8') as f:
+        f.write(md)
 
+# ==========================================
+# 主流程
+# ==========================================
 def main():
     logging.info("Starting East Coast Gas Daily Pipeline...")
     setup_directories()
-    
-    logging.info("Fetching GBB Data...")
-    gbb_summary, storage_records, flows_records = fetch_gbb_data()
-    save_storage_to_db(storage_records)
-    save_flows_to_db(flows_records)
-    
-    logging.info("Fetching STTM Data...")
-    sttm_summary, sttm_records = fetch_sttm_data()
-    save_prices_to_db(sttm_records)
-    
-    logging.info("Generating Report...")
+
+    gbb_summary, _, _ = fetch_gbb_data()
+    sttm_summary, _ = fetch_sttm_data()
     generate_report(gbb_summary, sttm_summary)
-    
-    logging.info("Pipeline run completed. Data persisted to SQLite.")
+
+    fatal = [e for e in PIPELINE_ERRORS if "parse error" in e.lower()]
+    if fatal:
+        logging.error("FATAL: " + "; ".join(fatal))
+        sys.exit(1)
+    if PIPELINE_ERRORS:
+        logging.warning("Non-fatal degradation: " + "; ".join(PIPELINE_ERRORS))
+    logging.info("Pipeline run completed.")
 
 if __name__ == "__main__":
     main()

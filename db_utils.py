@@ -42,6 +42,7 @@ def init_db():
             gas_date TEXT,
             facility_id INTEGER,
             facility_type TEXT,
+            demand REAL,       
             supply REAL,
             transfer_in REAL,
             transfer_out REAL,
