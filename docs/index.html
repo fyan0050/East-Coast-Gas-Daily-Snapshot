@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>East Coast Gas — Daily Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#272d36;
+    --ink:#e6edf3; --muted:#8b949e; --faint:#5a636d;
+    --syd:#4dabf7; --bri:#ffd43b; --adl:#ff8787; --vic:#69db7c; --accent:#f0883e;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code','Roboto Mono',Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.5;padding:24px;max-width:1180px;margin:0 auto;}
+  header{border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:20px;
+    display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;}
+  h1{font-size:18px;font-weight:600;letter-spacing:-0.01em;}
+  h1 .sub{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px;}
+  .meta{font-family:var(--mono);font-size:11px;color:var(--faint);}
+  .health{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:5px;
+    display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);}
+  .health .hdot{width:7px;height:7px;border-radius:50%;flex:none;}
+  .health.ok{color:#69db7c;} .health.ok .hdot{background:#69db7c;}
+  .health.degraded{color:#ffd43b;} .health.degraded .hdot{background:#ffd43b;}
+  .health.error{color:#ff8787;} .health.error .hdot{background:#ff8787;}
+  .health-detail{font-family:var(--mono);font-size:10px;color:var(--faint);
+    margin-bottom:18px;margin-top:-12px;word-break:break-word;}
+  .snapshot{margin-bottom:24px;}
+  .snap-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--faint);
+    font-family:var(--mono);margin-bottom:10px;}
+  .snap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:11px 13px;}
+  .stat .k{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;
+    font-family:var(--mono);margin-bottom:3px;display:flex;align-items:center;gap:5px;}
+  .stat .v{font-size:21px;font-weight:600;font-family:var(--mono);letter-spacing:-0.02em;}
+  .stat .u{font-size:11px;color:var(--faint);font-weight:400;margin-left:2px;}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none;}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px;}
+  @media(max-width:760px){body{padding:14px}.stat .v{font-size:18px}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;}
+  .panel h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;
+    color:var(--muted);margin-bottom:4px;}
+  .panel .desc{font-size:11px;color:var(--faint);margin-bottom:12px;font-family:var(--mono);}
+  .chart-box{position:relative;height:260px;}
+  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:50px 0;text-align:center;}
+  footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--border);
+    font-size:11px;color:var(--faint);font-family:var(--mono);}
+</style>
+</head>
+<body>
+<header>
+  <h1>East Coast Gas<span class="sub">Daily Market Monitor</span></h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="health" id="health"><span class="hdot"></span><span id="health-text">—</span></span>
+    <span class="meta" id="updated">loading…</span>
+  </div>
+</header>
+<div class="health-detail" id="health-detail"></div>
+
+<div class="snapshot">
+  <div class="snap-label" id="snap-date">Today's snapshot</div>
+  <div class="snap-grid" id="snapGrid"></div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>1 · STTM Hub Prices</h2>
+    <div class="desc">Ex-ante · $/GJ · Sydney / Brisbane / Adelaide</div>
+    <div class="chart-box"><canvas id="sttmChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>1 · DWGM Price — Victoria</h2>
+    <div class="desc">6am schedule · $/GJ · ASX futures reference · solid = actual, dashed = forecast</div>
+    <div class="chart-box"><canvas id="dwgmChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>2 · Heating Degree Days</h2>
+    <div class="desc">HDD (base 18°C) · higher = colder = more gas heating demand</div>
+    <div class="chart-box"><canvas id="weatherChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>3 · Price vs Weather — Victoria</h2>
+    <div class="desc">Each point = one day · x: Melbourne observed HDD · y: DWGM 6am price · tests "colder → higher price"</div>
+    <div class="chart-box"><canvas id="scatterChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>4 · Storage</h2>
+    <div class="desc">Held in storage · TJ</div>
+    <div class="chart-box"><canvas id="storageChart"></canvas></div>
+  </div>
+  <div class="panel">
+    <h2>5 · Flows</h2>
+    <div class="desc">Major facilities &amp; pipelines · TJ</div>
+    <div class="chart-box"><canvas id="flowsChart"></canvas></div>
+  </div>
+</div>
+
+<footer>
+  Personal learning project · Public AEMO data (CC BY 4.0) · Weather: Open-Meteo · Not investment advice ·
+  <span id="footer-ts"></span>
+</footer>
+
+<script>
+const C = {SYD:'#4dabf7',BRI:'#ffd43b',ADL:'#ff8787',VIC:'#69db7c',
+  Sydney:'#4dabf7',Brisbane:'#ffd43b',Adelaide:'#ff8787',Melbourne:'#69db7c',
+  storage:['#9775fa','#f0883e','#4dabf7','#69db7c','#ffd43b']};
+
+const baseOpts=(yLabel)=>({responsive:true,maintainAspectRatio:false,
+  interaction:{mode:'index',intersect:false},
+  scales:{
+    x:{type:'time',time:{unit:'day',tooltipFormat:'DD'},
+       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'},maxRotation:0}},
+    y:{title:{display:!!yLabel,text:yLabel,color:'#8b949e',font:{size:10}},
+       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
+  plugins:{legend:{labels:{color:'#e6edf3',font:{size:11},boxWidth:12,boxHeight:2}},
+    tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
+      titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10}}});
+
+const line=(data,color,label,opts={})=>({label,data,borderColor:color,backgroundColor:color,
+  borderWidth:1.8,pointRadius:0,pointHoverRadius:4,tension:0.15,...opts});
+
+function noData(id,msg){const c=document.getElementById(id);
+  if(c) c.parentElement.innerHTML='<div class="empty">'+(msg||'No data yet — pipeline needs a few runs')+'</div>';}
+
+function hddColor(hdd){
+  if(hdd==null) return '#5a636d';
+  const t=Math.min(hdd/15,1);
+  return 'rgb('+Math.round(255-(255-77)*t)+','+Math.round(135+(171-135)*t)+','+Math.round(135+(247-135)*t)+')';
+}
+
+fetch('data.json').then(r=>r.json()).then(d=>{
+  const ts=luxon.DateTime.fromISO(d.generated_at).toFormat('yyyy-LL-dd HH:mm')+' UTC';
+  document.getElementById('updated').textContent='updated '+ts;
+  document.getElementById('footer-ts').textContent='generated '+ts;
+
+  // pipeline health 徽标
+  const h=d.health||{status:'ok',detail:''};
+  const hEl=document.getElementById('health');
+  const hLabel={ok:'pipeline ok',degraded:'degraded',error:'error'}[h.status]||h.status;
+  hEl.className='health '+h.status;
+  document.getElementById('health-text').textContent=hLabel;
+  document.getElementById('health-detail').textContent=h.detail||'';
+
+  const s=d.snapshot||{};
+  const cards=[];
+  if(s.sttm) for(const [hub,p] of Object.entries(s.sttm))
+    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+C[hub]+'"></span>STTM '+hub+'</div><div class="v">'+p.toFixed(2)+'<span class="u">$/GJ</span></div></div>');
+  if(s.dwgm)
+    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+C.VIC+'"></span>DWGM VIC</div><div class="v">'+s.dwgm.price.toFixed(2)+'<span class="u">$/GJ</span></div></div>');
+  if(s.weather) for(const [city,hdd] of Object.entries(s.weather))
+    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+hddColor(hdd)+'"></span>'+city+' HDD</div><div class="v">'+(hdd==null?'—':hdd.toFixed(1))+'</div></div>');
+  if(s.storage) for(const [fid,v] of Object.entries(s.storage))
+    cards.push('<div class="stat"><div class="k">'+fid+'</div><div class="v">'+(v==null?'—':v.toLocaleString(undefined,{maximumFractionDigits:0}))+'<span class="u">TJ</span></div></div>');
+  document.getElementById('snapGrid').innerHTML=cards.join('')||'<div class="empty">No snapshot data yet</div>';
+  if(s.sttm_date) document.getElementById('snap-date').textContent='Snapshot · '+s.sttm_date;
+
+  if(d.sttm&&Object.keys(d.sttm).length){
+    const ds=Object.entries(d.sttm).map(([h,recs])=>line(recs.map(r=>({x:r.date,y:r.ex_ante})),C[h]||'#888',h));
+    new Chart(document.getElementById('sttmChart'),{type:'line',data:{datasets:ds},options:baseOpts('$/GJ')});
+  }else noData('sttmChart');
+
+  if(d.dwgm&&d.dwgm.length){
+    const a=d.dwgm.filter(r=>!r.is_forecast).map(r=>({x:r.date,y:r.price}));
+    const f=d.dwgm.filter(r=>r.is_forecast).map(r=>({x:r.date,y:r.price}));
+    const ds=[line(a,C.VIC,'Actual (6am)')];
+    if(f.length) ds.push(line(f,C.VIC,'Forecast',{borderDash:[4,3]}));
+    new Chart(document.getElementById('dwgmChart'),{type:'line',data:{datasets:ds},options:baseOpts('$/GJ')});
+  }else noData('dwgmChart');
+
+  if(d.weather&&Object.keys(d.weather).length){
+    const ds=Object.entries(d.weather).map(([c,recs])=>line(recs.map(r=>({x:r.date,y:r.hdd})),C[c]||'#888',c));
+    new Chart(document.getElementById('weatherChart'),{type:'line',data:{datasets:ds},options:baseOpts('HDD')});
+  }else noData('weatherChart');
+
+  if(d.scatter_melbourne&&d.scatter_melbourne.length>=2){
+    const pts=d.scatter_melbourne.map(p=>({x:p.hdd,y:p.price,date:p.date}));
+    new Chart(document.getElementById('scatterChart'),{type:'scatter',
+      data:{datasets:[{label:'VIC day',data:pts,
+        backgroundColor:pts.map(p=>hddColor(p.x)),pointRadius:4,pointHoverRadius:6}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        scales:{
+          x:{title:{display:true,text:'Melbourne HDD (observed)',color:'#8b949e',font:{size:10}},
+             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}},
+          y:{title:{display:true,text:'DWGM 6am $/GJ',color:'#8b949e',font:{size:10}},
+             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
+        plugins:{legend:{display:false},
+          tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
+            titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10,
+            callbacks:{title:(items)=>items[0].raw.date,
+              label:(it)=>'HDD '+it.raw.x.toFixed(1)+' · $'+it.raw.y.toFixed(2)}}}}});
+  }else noData('scatterChart','Need ~2+ weeks of paired data — backfill history to populate');
+
+  if(d.storage&&Object.keys(d.storage).length){
+    const ds=Object.entries(d.storage).map(([f,recs],i)=>line(recs.map(r=>({x:r.date,y:r.value})),C.storage[i%C.storage.length],f));
+    new Chart(document.getElementById('storageChart'),{type:'line',data:{datasets:ds},options:baseOpts('TJ')});
+  }else noData('storageChart');
+
+  noData('flowsChart','Flows history not exported yet — add to export when ready');
+
+}).catch(e=>{
+  document.getElementById('updated').textContent='data.json not found';
+  ['sttmChart','dwgmChart','weatherChart','scatterChart','storageChart','flowsChart']
+    .forEach(id=>noData(id,'Waiting for first data export'));
+});
+</script>
+</body>
+</html>

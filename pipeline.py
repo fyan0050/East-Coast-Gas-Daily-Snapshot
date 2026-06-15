@@ -598,8 +598,152 @@ def generate_report(gbb_data, sttm_status, dwgm_status, weather_status=None):
 """
     with open(os.path.join(REPORT_DIR, f"{TODAY_STR}.md"), "w", encoding='utf-8') as f:
         f.write(md)
-    with open(os.path.join(REPORT_DIR, "latest.md"), "w", encoding='utf-8') as f:
-        f.write(md)
+
+
+
+
+
+
+
+# ==========================================
+# dashboard
+# ==========================================
+ 
+DOCS_DIR = "docs"
+ 
+def _q(conn, sql):
+    """查询辅助：失败返回空 DataFrame，不让单个查询崩掉整个导出。"""
+    try:
+        return pd.read_sql_query(sql, conn)
+    except Exception as e:
+        logging.warning(f"dashboard query failed: {e}")
+        return pd.DataFrame()
+ 
+def build_snapshot(conn):
+    """当天快照：替代 latest.md 的核心数值。"""
+    snap = {"sttm": {}, "dwgm": None, "weather": {}, "storage": {}, "flows_date": None}
+    df = _q(conn, "SELECT gas_date,hub,price FROM prices WHERE price_type='Ex-Ante' "
+                  "AND gas_date=(SELECT MAX(gas_date) FROM prices WHERE price_type='Ex-Ante')")
+    snap["sttm_date"] = df['gas_date'].iloc[0] if not df.empty else None
+    for _, r in df.iterrows():
+        snap["sttm"][r['hub']] = float(r['price'])
+    df = _q(conn, "SELECT gas_date,price_6am_schedule FROM dwgm_prices WHERE is_forecast=0 "
+                  "AND gas_date=(SELECT MAX(gas_date) FROM dwgm_prices WHERE is_forecast=0)")
+    if not df.empty:
+        snap["dwgm"] = {"date": df['gas_date'].iloc[0], "price": float(df['price_6am_schedule'].iloc[0])}
+    df = _q(conn, "SELECT date,city,hdd FROM weather WHERE date=(SELECT MAX(date) FROM weather)")
+    snap["weather_date"] = df['date'].iloc[0] if not df.empty else None
+    for _, r in df.iterrows():
+        snap["weather"][r['city']] = None if pd.isna(r['hdd']) else float(r['hdd'])
+    df = _q(conn, "SELECT facility_id,held_in_storage FROM storage "
+                  "WHERE gas_date=(SELECT MAX(gas_date) FROM storage)")
+    for _, r in df.iterrows():
+        snap["storage"][str(r['facility_id'])] = None if pd.isna(r['held_in_storage']) else float(r['held_in_storage'])
+    return snap
+ 
+def build_scatter(conn, city="Melbourne"):
+    """价格 vs 天气散点：观测 HDD(is_forecast=0) 配对 DWGM 实际 6am 价。"""
+    sql = f"""
+        SELECT w.date AS date, w.hdd AS hdd, d.price_6am_schedule AS price
+        FROM weather w
+        JOIN dwgm_prices d ON w.date = d.gas_date
+        WHERE w.city = '{city}' AND w.is_forecast = 0 AND d.is_forecast = 0
+              AND w.hdd IS NOT NULL AND d.price_6am_schedule IS NOT NULL
+        ORDER BY w.date
+    """
+    df = _q(conn, sql)
+    return [{"date": r['date'], "hdd": float(r['hdd']), "price": float(r['price'])}
+            for _, r in df.iterrows()]
+ 
+def export_dashboard_data(history_days=90, pipeline_errors=None):
+    """导出近 history_days 天数据到 docs/data.json。
+    pipeline_errors: 传入 PIPELINE_ERRORS，用于 dashboard 顶部 health 徽标。"""
+    os.makedirs(DOCS_DIR, exist_ok=True)
+    cutoff = (datetime.date.today() - datetime.timedelta(days=history_days)).isoformat()
+ 
+    errs = pipeline_errors or []
+    if not errs:
+        health = {"status": "ok", "detail": ""}
+    elif any("parse error" in e.lower() for e in errs):
+        health = {"status": "error", "detail": "; ".join(errs)}
+    else:
+        health = {"status": "degraded", "detail": "; ".join(errs)}
+ 
+    payload = {
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "history_days": history_days,
+        "health": health,
+        "sttm": {}, "dwgm": [], "storage": {}, "weather": {},
+    }
+ 
+    conn = sqlite3.connect(DB_PATH)
+ 
+    # STTM
+    df = _q(conn, f"SELECT gas_date, hub, price_type, price FROM prices "
+                  f"WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
+    if not df.empty:
+        for hub in sorted(df['hub'].unique()):
+            sub = df[df['hub'] == hub]
+            piv = sub.pivot_table(index='gas_date', columns='price_type',
+                                  values='price', aggfunc='last').reset_index()
+            recs = []
+            for _, r in piv.iterrows():
+                recs.append({
+                    "date": r['gas_date'],
+                    "ex_ante": None if 'Ex-Ante' not in piv.columns or pd.isna(r.get('Ex-Ante')) else float(r['Ex-Ante']),
+                    "ex_post": None if 'Ex-Post' not in piv.columns or pd.isna(r.get('Ex-Post')) else float(r['Ex-Post']),
+                })
+            payload["sttm"][hub] = recs
+ 
+    # DWGM
+    df = _q(conn, f"SELECT gas_date, price_6am_schedule, is_forecast FROM dwgm_prices "
+                  f"WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
+    if not df.empty:
+        payload["dwgm"] = [
+            {"date": r['gas_date'],
+             "price": None if pd.isna(r['price_6am_schedule']) else float(r['price_6am_schedule']),
+             "is_forecast": int(r['is_forecast']) if pd.notna(r['is_forecast']) else 0}
+            for _, r in df.iterrows()
+        ]
+ 
+    # Storage
+    df = _q(conn, f"SELECT gas_date, facility_id, held_in_storage FROM storage "
+                  f"WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
+    if not df.empty:
+        for fid in sorted(df['facility_id'].unique()):
+            sub = df[df['facility_id'] == fid]
+            payload["storage"][str(fid)] = [
+                {"date": r['gas_date'],
+                 "value": None if pd.isna(r['held_in_storage']) else float(r['held_in_storage'])}
+                for _, r in sub.iterrows()
+            ]
+ 
+    # Weather
+    df = _q(conn, f"SELECT date, city, hdd FROM weather "
+                  f"WHERE date >= '{cutoff}' ORDER BY date")
+    if not df.empty:
+        for city in sorted(df['city'].unique()):
+            sub = df[df['city'] == city]
+            payload["weather"][city] = [
+                {"date": r['date'],
+                 "hdd": None if pd.isna(r['hdd']) else float(r['hdd'])}
+                for _, r in sub.iterrows()
+            ]
+ 
+    # 当天快照 + 散点配对
+    payload["snapshot"] = build_snapshot(conn)
+    payload["scatter_melbourne"] = build_scatter(conn, "Melbourne")
+ 
+    conn.close()
+ 
+    out_path = os.path.join(DOCS_DIR, "data.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logging.info(f"Dashboard data exported -> {out_path} "
+                 f"(sttm={len(payload['sttm'])} hubs, dwgm={len(payload['dwgm'])}, "
+                 f"storage={len(payload['storage'])}, weather={len(payload['weather'])}, "
+                 f"scatter={len(payload['scatter_melbourne'])})")
+    return out_path
 
 # ==========================================
 # 主流程
@@ -613,6 +757,8 @@ def main():
     dwgm_summary, _ = fetch_dwgm_data()
     eather_summary, _ = fetch_weather()
     generate_report(gbb_summary, sttm_summary, dwgm_summary, eather_summary)
+
+    export_dashboard_data(pipeline_errors=PIPELINE_ERRORS)
 
     fatal = [e for e in PIPELINE_ERRORS if "parse error" in e.lower()]
     if fatal:
