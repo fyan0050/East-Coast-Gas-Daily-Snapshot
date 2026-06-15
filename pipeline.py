@@ -144,7 +144,7 @@ def save_prices(records):
     if not records: return
     conn = sqlite3.connect(DB_PATH)
     conn.executemany(
-        'INSERT OR REPLACE INTO prices '
+        'INSERT OR REPLACE INTO sttm_prices '
         '(gas_date, hub, price_type, price, source_file, ingested_at) '
         'VALUES (?, ?, ?, ?, ?, ?)', records)
     conn.commit(); conn.close()
@@ -619,26 +619,76 @@ def _q(conn, sql):
         logging.warning(f"dashboard query failed: {e}")
         return pd.DataFrame()
  
-def build_snapshot(conn):
-    """当天快照：替代 latest.md 的核心数值。"""
-    snap = {"sttm": {}, "dwgm": None, "weather": {}, "storage": {}, "flows_date": None}
-    df = _q(conn, "SELECT gas_date,hub,price FROM prices WHERE price_type='Ex-Ante' "
-                  "AND gas_date=(SELECT MAX(gas_date) FROM prices WHERE price_type='Ex-Ante')")
-    snap["sttm_date"] = df['gas_date'].iloc[0] if not df.empty else None
-    for _, r in df.iterrows():
-        snap["sttm"][r['hub']] = float(r['price'])
+def _facility_name_map():
+    """从 facilities.yaml 建 id(str) -> 展示名 的映射，用于把 facility_id 换成人类可读名。
+    失败时返回空 dict，调用方回退用原始 id。"""
+    m = {}
+    try:
+        fac = load_facilities()
+        for group in ('storage', 'production', 'demand', 'pipelines'):
+            for _, v in (fac.get(group) or {}).items():
+                m[str(v['id'])] = v.get('name', str(v['id']))
+    except Exception as e:
+        logging.warning(f"facility map load failed: {e}")
+    return m
+ 
+def build_snapshot(conn, name_map):
+    """当天快照：每个数值带自己的日期(各表最新日期可能不同，分别标注以求准确)。"""
+    snap = {"sttm": [], "dwgm": None, "weather": [], "storage": [], "flows": []}
+ 
+    # STTM：最新一天各 hub ex-ante
+    df = _q(conn, "SELECT gas_date,hub,price FROM sttm_prices WHERE price_type='Ex-Ante' "
+                  "AND gas_date=(SELECT MAX(gas_date) FROM sttm_prices WHERE price_type='Ex-Ante')")
+    if not df.empty:
+        snap["sttm_date"] = df['gas_date'].iloc[0]
+        for _, r in df.iterrows():
+            snap["sttm"].append({"hub": r['hub'], "price": float(r['price'])})
+ 
+    # DWGM：最新实际 6am
     df = _q(conn, "SELECT gas_date,price_6am_schedule FROM dwgm_prices WHERE is_forecast=0 "
                   "AND gas_date=(SELECT MAX(gas_date) FROM dwgm_prices WHERE is_forecast=0)")
     if not df.empty:
         snap["dwgm"] = {"date": df['gas_date'].iloc[0], "price": float(df['price_6am_schedule'].iloc[0])}
-    df = _q(conn, "SELECT date,city,hdd FROM weather WHERE date=(SELECT MAX(date) FROM weather)")
-    snap["weather_date"] = df['date'].iloc[0] if not df.empty else None
-    for _, r in df.iterrows():
-        snap["weather"][r['city']] = None if pd.isna(r['hdd']) else float(r['hdd'])
-    df = _q(conn, "SELECT facility_id,held_in_storage FROM storage "
+ 
+    # 天气：最新一天各城 HDD（注意可能是预报）
+    df = _q(conn, "SELECT date,city,hdd,is_forecast FROM weather "
+                  "WHERE date=(SELECT MAX(date) FROM weather)")
+    if not df.empty:
+        snap["weather_date"] = df['date'].iloc[0]
+        snap["weather_is_forecast"] = int(df['is_forecast'].iloc[0]) if pd.notna(df['is_forecast'].iloc[0]) else 0
+        for _, r in df.iterrows():
+            snap["weather"].append({"city": r['city'],
+                                    "hdd": None if pd.isna(r['hdd']) else float(r['hdd'])})
+ 
+    # Storage：最新一天，用映射名
+    df = _q(conn, "SELECT gas_date,facility_id,held_in_storage FROM storage "
                   "WHERE gas_date=(SELECT MAX(gas_date) FROM storage)")
-    for _, r in df.iterrows():
-        snap["storage"][str(r['facility_id'])] = None if pd.isna(r['held_in_storage']) else float(r['held_in_storage'])
+    if not df.empty:
+        snap["storage_date"] = df['gas_date'].iloc[0]
+        for _, r in df.iterrows():
+            fid = str(r['facility_id'])
+            snap["storage"].append({"name": name_map.get(fid, fid),
+                                    "value": None if pd.isna(r['held_in_storage']) else float(r['held_in_storage'])})
+ 
+    # Flows：最新一天，按类型给展示口径
+    df = _q(conn, "SELECT gas_date,facility_id,facility_type,supply,demand,transfer_out "
+                  "FROM flows WHERE gas_date=(SELECT MAX(gas_date) FROM flows)")
+    if not df.empty:
+        snap["flows_date"] = df['gas_date'].iloc[0]
+        for _, r in df.iterrows():
+            fid = str(r['facility_id'])
+            ftype = r['facility_type']
+            # 按类型选展示值：production->supply, lng_export->demand, pipeline->demand(Actual Demand)
+            if ftype == 'production':
+                val, lbl = r['supply'], 'Production'
+            elif ftype == 'lng_export':
+                val, lbl = r['demand'], 'LNG Export'
+            elif ftype == 'pipeline':
+                val, lbl = r['demand'], 'Pipeline (Actual Demand)'
+            else:
+                val, lbl = r['supply'], ftype
+            snap["flows"].append({"name": name_map.get(fid, fid), "type": lbl,
+                                  "value": None if pd.isna(val) else float(val)})
     return snap
  
 def build_scatter(conn, city="Melbourne"):
@@ -660,6 +710,7 @@ def export_dashboard_data(history_days=90, pipeline_errors=None):
     pipeline_errors: 传入 PIPELINE_ERRORS，用于 dashboard 顶部 health 徽标。"""
     os.makedirs(DOCS_DIR, exist_ok=True)
     cutoff = (datetime.date.today() - datetime.timedelta(days=history_days)).isoformat()
+    name_map = _facility_name_map()
  
     errs = pipeline_errors or []
     if not errs:
@@ -673,13 +724,13 @@ def export_dashboard_data(history_days=90, pipeline_errors=None):
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "history_days": history_days,
         "health": health,
-        "sttm": {}, "dwgm": [], "storage": {}, "weather": {},
+        "sttm": {}, "dwgm": [], "storage": {}, "weather": {}, "flows": {},
     }
  
     conn = sqlite3.connect(DB_PATH)
  
     # STTM
-    df = _q(conn, f"SELECT gas_date, hub, price_type, price FROM prices "
+    df = _q(conn, f"SELECT gas_date, hub, price_type, price FROM sttm_prices "
                   f"WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
     if not df.empty:
         for hub in sorted(df['hub'].unique()):
@@ -706,15 +757,38 @@ def export_dashboard_data(history_days=90, pipeline_errors=None):
             for _, r in df.iterrows()
         ]
  
-    # Storage
+    # Storage（用映射名作为 key）
     df = _q(conn, f"SELECT gas_date, facility_id, held_in_storage FROM storage "
                   f"WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
     if not df.empty:
         for fid in sorted(df['facility_id'].unique()):
             sub = df[df['facility_id'] == fid]
-            payload["storage"][str(fid)] = [
+            disp = name_map.get(str(fid), str(fid))
+            payload["storage"][disp] = [
                 {"date": r['gas_date'],
                  "value": None if pd.isna(r['held_in_storage']) else float(r['held_in_storage'])}
+                for _, r in sub.iterrows()
+            ]
+ 
+    # Flows（按类型选展示值，用映射名作为 key）
+    df = _q(conn, f"SELECT gas_date, facility_id, facility_type, supply, demand, transfer_out "
+                  f"FROM flows WHERE gas_date >= '{cutoff}' ORDER BY gas_date")
+    if not df.empty:
+        for fid in sorted(df['facility_id'].unique()):
+            sub = df[df['facility_id'] == fid].copy()
+            ftype = sub['facility_type'].iloc[0]
+            # 选该类型的主展示列
+            if ftype == 'production':
+                col = 'supply'
+            elif ftype in ('lng_export', 'pipeline'):
+                col = 'demand'   # pipeline 用 demand=Actual Demand
+            else:
+                col = 'supply'
+            disp = name_map.get(str(fid), str(fid))
+            payload["flows"][disp] = [
+                {"date": r['gas_date'],
+                 "value": None if pd.isna(r[col]) else float(r[col]),
+                 "type": ftype}
                 for _, r in sub.iterrows()
             ]
  
@@ -730,8 +804,8 @@ def export_dashboard_data(history_days=90, pipeline_errors=None):
                 for _, r in sub.iterrows()
             ]
  
-    # 当天快照 + 散点配对
-    payload["snapshot"] = build_snapshot(conn)
+    # 快照 + 散点
+    payload["snapshot"] = build_snapshot(conn, name_map)
     payload["scatter_melbourne"] = build_scatter(conn, "Melbourne")
  
     conn.close()
@@ -741,8 +815,8 @@ def export_dashboard_data(history_days=90, pipeline_errors=None):
         json.dump(payload, f, ensure_ascii=False, indent=2)
     logging.info(f"Dashboard data exported -> {out_path} "
                  f"(sttm={len(payload['sttm'])} hubs, dwgm={len(payload['dwgm'])}, "
-                 f"storage={len(payload['storage'])}, weather={len(payload['weather'])}, "
-                 f"scatter={len(payload['scatter_melbourne'])})")
+                 f"storage={len(payload['storage'])}, flows={len(payload['flows'])}, "
+                 f"weather={len(payload['weather'])}, scatter={len(payload['scatter_melbourne'])})")
     return out_path
 
 # ==========================================

@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>East Coast Gas — Daily Monitor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.min.js"></script>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --border:#272d36;
@@ -34,6 +32,10 @@
   .snapshot{margin-bottom:24px;}
   .snap-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--faint);
     font-family:var(--mono);margin-bottom:10px;}
+  .snap-section{margin-bottom:14px;}
+  .snap-h{font-size:11px;font-weight:600;color:var(--ink);margin-bottom:7px;
+    display:flex;align-items:baseline;gap:8px;}
+  .snap-d{font-family:var(--mono);font-size:10px;color:var(--faint);font-weight:400;}
   .snap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
   .stat{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:11px 13px;}
   .stat .k{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;
@@ -64,8 +66,8 @@
 <div class="health-detail" id="health-detail"></div>
 
 <div class="snapshot">
-  <div class="snap-label" id="snap-date">Today's snapshot</div>
-  <div class="snap-grid" id="snapGrid"></div>
+  <div class="snap-label">Latest snapshot</div>
+  <div id="snapWrap"></div>
 </div>
 
 <div class="grid">
@@ -111,102 +113,168 @@ const C = {SYD:'#4dabf7',BRI:'#ffd43b',ADL:'#ff8787',VIC:'#69db7c',
   Sydney:'#4dabf7',Brisbane:'#ffd43b',Adelaide:'#ff8787',Melbourne:'#69db7c',
   storage:['#9775fa','#f0883e','#4dabf7','#69db7c','#ffd43b']};
 
+// 类别轴 baseOpts —— 不依赖时间轴/luxon adapter，只需 Chart.js 本体
 const baseOpts=(yLabel)=>({responsive:true,maintainAspectRatio:false,
   interaction:{mode:'index',intersect:false},
   scales:{
-    x:{type:'time',time:{unit:'day',tooltipFormat:'DD'},
-       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'},maxRotation:0}},
+    x:{type:'category',
+       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'},
+         maxRotation:0,autoSkip:true,maxTicksLimit:8}},
     y:{title:{display:!!yLabel,text:yLabel,color:'#8b949e',font:{size:10}},
        grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
   plugins:{legend:{labels:{color:'#e6edf3',font:{size:11},boxWidth:12,boxHeight:2}},
     tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
       titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10}}});
 
-const line=(data,color,label,opts={})=>({label,data,borderColor:color,backgroundColor:color,
-  borderWidth:1.8,pointRadius:0,pointHoverRadius:4,tension:0.15,...opts});
+const line=(values,color,label,opts={})=>({label,data:values,borderColor:color,
+  backgroundColor:color,borderWidth:1.8,pointRadius:0,pointHoverRadius:4,tension:0.15,...opts});
 
 function noData(id,msg){const c=document.getElementById(id);
-  if(c) c.parentElement.innerHTML='<div class="empty">'+(msg||'No data yet — pipeline needs a few runs')+'</div>';}
+  if(c) c.parentElement.innerHTML='<div class="empty">'+(msg||'No data yet')+'</div>';}
 
 function hddColor(hdd){
   if(hdd==null) return '#5a636d';
   const t=Math.min(hdd/15,1);
-  return 'rgb('+Math.round(255-(255-77)*t)+','+Math.round(135+(171-135)*t)+','+Math.round(135+(247-135)*t)+')';
+  return 'rgb('+Math.round(255-(255-77)*t)+','+Math.round(135+(171-135)*t)+','+Math.round(135+(247-135)*t)+')';}
+
+// 安全画图：单个图表出错只影响它自己，错误打印到 console，不连累其他图
+function safeChart(id,builder){
+  try{ builder(); }
+  catch(err){ console.error('chart '+id+' failed:',err); noData(id,'Chart error — see console'); }}
+
+// 合并多个序列的日期为统一的 x 轴标签（类别轴需要共同 labels）
+function unionDates(seriesArrays){
+  const set=new Set();
+  seriesArrays.forEach(arr=>arr.forEach(r=>set.add(r.date)));
+  return Array.from(set).sort();
+}
+// 把 [{date,val}] 按 labels 对齐成纯数值数组（缺失补 null）
+function alignToLabels(recs,labels,valKey){
+  const m={}; recs.forEach(r=>m[r.date]=r[valKey]);
+  return labels.map(d=> d in m ? m[d] : null);
 }
 
-fetch('data.json').then(r=>r.json()).then(d=>{
-  const ts=luxon.DateTime.fromISO(d.generated_at).toFormat('yyyy-LL-dd HH:mm')+' UTC';
+fetch('data.json').then(function(r){return r.json();}).then(function(d){
+  // 用原生 Date 格式化，不依赖 luxon
+  var ts = new Date(d.generated_at).toISOString().slice(0,16).replace('T',' ')+' UTC';
   document.getElementById('updated').textContent='updated '+ts;
   document.getElementById('footer-ts').textContent='generated '+ts;
 
-  // pipeline health 徽标
-  const h=d.health||{status:'ok',detail:''};
-  const hEl=document.getElementById('health');
-  const hLabel={ok:'pipeline ok',degraded:'degraded',error:'error'}[h.status]||h.status;
-  hEl.className='health '+h.status;
-  document.getElementById('health-text').textContent=hLabel;
+  // health 徽标
+  var h=d.health||{status:'ok',detail:''};
+  document.getElementById('health').className='health '+h.status;
+  document.getElementById('health-text').textContent=
+    ({ok:'pipeline ok',degraded:'degraded',error:'error'}[h.status]||h.status);
   document.getElementById('health-detail').textContent=h.detail||'';
 
-  const s=d.snapshot||{};
-  const cards=[];
-  if(s.sttm) for(const [hub,p] of Object.entries(s.sttm))
-    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+C[hub]+'"></span>STTM '+hub+'</div><div class="v">'+p.toFixed(2)+'<span class="u">$/GJ</span></div></div>');
-  if(s.dwgm)
-    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+C.VIC+'"></span>DWGM VIC</div><div class="v">'+s.dwgm.price.toFixed(2)+'<span class="u">$/GJ</span></div></div>');
-  if(s.weather) for(const [city,hdd] of Object.entries(s.weather))
-    cards.push('<div class="stat"><div class="k"><span class="dot" style="background:'+hddColor(hdd)+'"></span>'+city+' HDD</div><div class="v">'+(hdd==null?'—':hdd.toFixed(1))+'</div></div>');
-  if(s.storage) for(const [fid,v] of Object.entries(s.storage))
-    cards.push('<div class="stat"><div class="k">'+fid+'</div><div class="v">'+(v==null?'—':v.toLocaleString(undefined,{maximumFractionDigits:0}))+'<span class="u">TJ</span></div></div>');
-  document.getElementById('snapGrid').innerHTML=cards.join('')||'<div class="empty">No snapshot data yet</div>';
-  if(s.sttm_date) document.getElementById('snap-date').textContent='Snapshot · '+s.sttm_date;
+  // 当天快照（按 report 结构分组，每组带自己的日期标注，避免误把不同日期当同一天）
+  var s=d.snapshot||{};
+  function section(title,dateStr,extra){
+    return '<div class="snap-section"><div class="snap-h">'+title+
+           (dateStr?'<span class="snap-d">'+dateStr+(extra||'')+'</span>':'')+'</div>';}
+  function stat(k,v,unit,dotColor){
+    return '<div class="stat">'+
+      '<div class="k">'+(dotColor?'<span class="dot" style="background:'+dotColor+'"></span>':'')+k+'</div>'+
+      '<div class="v">'+v+(unit?'<span class="u">'+unit+'</span>':'')+'</div></div>';}
+  var html_snap='';
+  // 价格组
+  if((s.sttm&&s.sttm.length)||s.dwgm){
+    html_snap+=section('Prices',s.sttm_date||(s.dwgm&&s.dwgm.date)||'');
+    html_snap+='<div class="snap-grid">';
+    if(s.sttm) s.sttm.forEach(function(x){html_snap+=stat('STTM '+x.hub,x.price.toFixed(2),'$/GJ',C[x.hub]);});
+    if(s.dwgm) html_snap+=stat('DWGM VIC',s.dwgm.price.toFixed(2),'$/GJ',C.VIC);
+    html_snap+='</div></div>';
+  }
+  // 天气组（标注是否预报）
+  if(s.weather&&s.weather.length){
+    var wExtra=s.weather_is_forecast?' (forecast)':'';
+    html_snap+=section('Heating Demand (HDD)',s.weather_date||'',wExtra);
+    html_snap+='<div class="snap-grid">';
+    s.weather.forEach(function(x){html_snap+=stat(x.city,x.hdd==null?'\u2014':x.hdd.toFixed(1),'',hddColor(x.hdd));});
+    html_snap+='</div></div>';
+  }
+  // storage 组
+  if(s.storage&&s.storage.length){
+    html_snap+=section('Storage',s.storage_date||'');
+    html_snap+='<div class="snap-grid">';
+    s.storage.forEach(function(x){html_snap+=stat(x.name,x.value==null?'\u2014':x.value.toLocaleString(undefined,{maximumFractionDigits:0}),'TJ');});
+    html_snap+='</div></div>';
+  }
+  // flows 组（带类型标注）
+  if(s.flows&&s.flows.length){
+    html_snap+=section('Flows',s.flows_date||'');
+    html_snap+='<div class="snap-grid">';
+    s.flows.forEach(function(x){html_snap+=stat(x.name,x.value==null?'\u2014':x.value.toLocaleString(undefined,{maximumFractionDigits:0}),'TJ');});
+    html_snap+='</div></div>';
+  }
+  document.getElementById('snapWrap').innerHTML=html_snap||'<div class="empty">No snapshot data yet</div>';
 
-  if(d.sttm&&Object.keys(d.sttm).length){
-    const ds=Object.entries(d.sttm).map(([h,recs])=>line(recs.map(r=>({x:r.date,y:r.ex_ante})),C[h]||'#888',h));
-    new Chart(document.getElementById('sttmChart'),{type:'line',data:{datasets:ds},options:baseOpts('$/GJ')});
-  }else noData('sttmChart');
+  // ① STTM
+  if(d.sttm&&Object.keys(d.sttm).length) safeChart('sttmChart',function(){
+    var hubs=Object.keys(d.sttm);
+    var labels=unionDates(hubs.map(function(h){return d.sttm[h];}));
+    var ds=hubs.map(function(h){return line(alignToLabels(d.sttm[h],labels,'ex_ante'),C[h]||'#888',h);});
+    new Chart(document.getElementById('sttmChart'),{type:'line',data:{labels:labels,datasets:ds},options:baseOpts('$/GJ')});
+  }); else noData('sttmChart');
 
-  if(d.dwgm&&d.dwgm.length){
-    const a=d.dwgm.filter(r=>!r.is_forecast).map(r=>({x:r.date,y:r.price}));
-    const f=d.dwgm.filter(r=>r.is_forecast).map(r=>({x:r.date,y:r.price}));
-    const ds=[line(a,C.VIC,'Actual (6am)')];
-    if(f.length) ds.push(line(f,C.VIC,'Forecast',{borderDash:[4,3]}));
-    new Chart(document.getElementById('dwgmChart'),{type:'line',data:{datasets:ds},options:baseOpts('$/GJ')});
-  }else noData('dwgmChart');
+  // ① DWGM（实线actual+虚线forecast）
+  if(d.dwgm&&d.dwgm.length) safeChart('dwgmChart',function(){
+    var labels=d.dwgm.map(function(r){return r.date;});
+    var actual=d.dwgm.map(function(r){return r.is_forecast?null:r.price;});
+    var fcast =d.dwgm.map(function(r){return r.is_forecast?r.price:null;});
+    var ds=[line(actual,C.VIC,'Actual (6am)')];
+    if(fcast.some(function(v){return v!=null;})) ds.push(line(fcast,C.VIC,'Forecast',{borderDash:[4,3]}));
+    new Chart(document.getElementById('dwgmChart'),{type:'line',data:{labels:labels,datasets:ds},options:baseOpts('$/GJ')});
+  }); else noData('dwgmChart');
 
-  if(d.weather&&Object.keys(d.weather).length){
-    const ds=Object.entries(d.weather).map(([c,recs])=>line(recs.map(r=>({x:r.date,y:r.hdd})),C[c]||'#888',c));
-    new Chart(document.getElementById('weatherChart'),{type:'line',data:{datasets:ds},options:baseOpts('HDD')});
-  }else noData('weatherChart');
+  // ② Weather HDD
+  if(d.weather&&Object.keys(d.weather).length) safeChart('weatherChart',function(){
+    var cities=Object.keys(d.weather);
+    var labels=unionDates(cities.map(function(c){return d.weather[c];}));
+    var ds=cities.map(function(c){return line(alignToLabels(d.weather[c],labels,'hdd'),C[c]||'#888',c);});
+    new Chart(document.getElementById('weatherChart'),{type:'line',data:{labels:labels,datasets:ds},options:baseOpts('HDD')});
+  }); else noData('weatherChart');
 
-  if(d.scatter_melbourne&&d.scatter_melbourne.length>=2){
-    const pts=d.scatter_melbourne.map(p=>({x:p.hdd,y:p.price,date:p.date}));
+  // ③ 散点 Price vs HDD（散点轴本来就是数值轴，不依赖时间轴）
+  if(d.scatter_melbourne&&d.scatter_melbourne.length>=2) safeChart('scatterChart',function(){
+    var pts=d.scatter_melbourne.map(function(p){return {x:p.hdd,y:p.price,date:p.date};});
     new Chart(document.getElementById('scatterChart'),{type:'scatter',
       data:{datasets:[{label:'VIC day',data:pts,
-        backgroundColor:pts.map(p=>hddColor(p.x)),pointRadius:4,pointHoverRadius:6}]},
+        backgroundColor:pts.map(function(p){return hddColor(p.x);}),pointRadius:4,pointHoverRadius:6}]},
       options:{responsive:true,maintainAspectRatio:false,
         scales:{
-          x:{title:{display:true,text:'Melbourne HDD (observed)',color:'#8b949e',font:{size:10}},
+          x:{type:'linear',title:{display:true,text:'Melbourne HDD (observed)',color:'#8b949e',font:{size:10}},
              grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}},
           y:{title:{display:true,text:'DWGM 6am $/GJ',color:'#8b949e',font:{size:10}},
              grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
         plugins:{legend:{display:false},
           tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
             titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10,
-            callbacks:{title:(items)=>items[0].raw.date,
-              label:(it)=>'HDD '+it.raw.x.toFixed(1)+' · $'+it.raw.y.toFixed(2)}}}}});
-  }else noData('scatterChart','Need ~2+ weeks of paired data — backfill history to populate');
+            callbacks:{title:function(items){return items[0].raw.date;},
+              label:function(it){return 'HDD '+it.raw.x.toFixed(1)+' \u00b7 $'+it.raw.y.toFixed(2);}}}}}});
+  }); else noData('scatterChart','Need ~2+ weeks of paired data — backfill history to populate');
 
-  if(d.storage&&Object.keys(d.storage).length){
-    const ds=Object.entries(d.storage).map(([f,recs],i)=>line(recs.map(r=>({x:r.date,y:r.value})),C.storage[i%C.storage.length],f));
-    new Chart(document.getElementById('storageChart'),{type:'line',data:{datasets:ds},options:baseOpts('TJ')});
-  }else noData('storageChart');
+  // ④ Storage
+  if(d.storage&&Object.keys(d.storage).length) safeChart('storageChart',function(){
+    var fids=Object.keys(d.storage);
+    var labels=unionDates(fids.map(function(f){return d.storage[f];}));
+    var ds=fids.map(function(f,i){return line(alignToLabels(d.storage[f],labels,'value'),C.storage[i%C.storage.length],f);});
+    new Chart(document.getElementById('storageChart'),{type:'line',data:{labels:labels,datasets:ds},options:baseOpts('TJ')});
+  }); else noData('storageChart');
 
-  noData('flowsChart','Flows history not exported yet — add to export when ready');
+  // ⑤ Flows
+  if(d.flows&&Object.keys(d.flows).length) safeChart('flowsChart',function(){
+    var fac=Object.keys(d.flows);
+    var labels=unionDates(fac.map(function(f){return d.flows[f];}));
+    var ds=fac.map(function(f,i){return line(alignToLabels(d.flows[f],labels,'value'),C.storage[i%C.storage.length],f);});
+    new Chart(document.getElementById('flowsChart'),{type:'line',data:{labels:labels,datasets:ds},options:baseOpts('TJ')});
+  }); else noData('flowsChart');
 
-}).catch(e=>{
-  document.getElementById('updated').textContent='data.json not found';
+}).catch(function(e){
+  console.error('dashboard load failed:',e);
+  document.getElementById('updated').textContent='data.json load failed — see console';
   ['sttmChart','dwgmChart','weatherChart','scatterChart','storageChart','flowsChart']
-    .forEach(id=>noData(id,'Waiting for first data export'));
+    .forEach(function(id){noData(id,'data.json failed to load');});
 });
 </script>
 </body>

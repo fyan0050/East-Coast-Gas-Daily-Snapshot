@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-15T11:38:41.503618+00:00",
+  "generated_at": "2026-06-15T12:53:37.099171+00:00",
   "history_days": 90,
   "health": {
     "status": "ok",
@@ -8,13 +8,23 @@
   "sttm": {
     "ADL": [
       {
+        "date": "2026-06-10",
+        "ex_ante": 7.8,
+        "ex_post": null
+      },
+      {
+        "date": "2026-06-11",
+        "ex_ante": 7.7,
+        "ex_post": null
+      },
+      {
         "date": "2026-06-12",
-        "ex_ante": null,
+        "ex_ante": 7.89,
         "ex_post": 7.25
       },
       {
         "date": "2026-06-13",
-        "ex_ante": null,
+        "ex_ante": 6.1,
         "ex_post": 5.89
       },
       {
@@ -30,13 +40,23 @@
     ],
     "BRI": [
       {
+        "date": "2026-06-10",
+        "ex_ante": 7.7788,
+        "ex_post": null
+      },
+      {
+        "date": "2026-06-11",
+        "ex_ante": 7.8505,
+        "ex_post": null
+      },
+      {
         "date": "2026-06-12",
-        "ex_ante": null,
+        "ex_ante": 7.96,
         "ex_post": 7.0
       },
       {
         "date": "2026-06-13",
-        "ex_ante": null,
+        "ex_ante": 6.4,
         "ex_post": 6.53
       },
       {
@@ -52,13 +72,23 @@
     ],
     "SYD": [
       {
+        "date": "2026-06-10",
+        "ex_ante": 7.2,
+        "ex_post": null
+      },
+      {
+        "date": "2026-06-11",
+        "ex_ante": 7.3288,
+        "ex_post": null
+      },
+      {
         "date": "2026-06-12",
-        "ex_ante": null,
+        "ex_ante": 7.9589,
         "ex_post": 7.8411
       },
       {
         "date": "2026-06-13",
-        "ex_ante": null,
+        "ex_ante": 6.2222,
         "ex_post": 6.2589
       },
       {
@@ -156,7 +186,7 @@
     }
   ],
   "storage": {
-    "530038": [
+    "Dandenong LNG": [
       {
         "date": "2026-05-16",
         "value": 639.599
@@ -278,7 +308,7 @@
         "value": 629.384
       }
     ],
-    "530042": [
+    "Iona UGS": [
       {
         "date": "2026-05-16",
         "value": 24907.117
@@ -651,29 +681,1151 @@
       }
     ]
   },
+  "flows": {
+    "EGP": [
+      {
+        "date": "2026-05-16",
+        "value": 143.40900000000002,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 145.154,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 176.884,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 133.094,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 133.124,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 148.098,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 126.298,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 116.812,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 139.058,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 157.592,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 171.041,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 217.623,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 183.51300000000003,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 139.29000000000002,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 125.28999999999999,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 135.529,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 130.11100000000002,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 169.325,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 146.96699999999998,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 120.889,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 150.939,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 164.334,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 166.64200000000002,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 142.144,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 152.569,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 193.22899999999998,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 175.414,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 171.67600000000002,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 157.352,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 149.415,
+        "type": "pipeline"
+      }
+    ],
+    "Longford": [
+      {
+        "date": "2026-05-16",
+        "value": 495.876,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 498.693,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 510.617,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 530.287,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 547.995,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 547.242,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 545.449,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 533.776,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 529.445,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 523.512,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 546.049,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 567.045,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 573.722,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 558.911,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 528.231,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 529.84,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 617.031,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 616.977,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 614.162,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 598.961,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 601.043,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 599.501,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 585.551,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 578.141,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 591.05,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 603.544,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 620.112,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 625.88,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 606.521,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 603.94,
+        "type": "production"
+      }
+    ],
+    "SWQP": [
+      {
+        "date": "2026-05-16",
+        "value": 0.122,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 0.123,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 0.118,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 0.119,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 0.117,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 0.097,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 0.11,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 0.112,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 0.115,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 0.121,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 0.117,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 0.104,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 0.125,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 0.113,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 0.117,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 0.12,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 0.123,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 0.123,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 0.117,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 2.104,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 0.122,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 0.139,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 0.115,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 0.116,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 0.12,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 0.111,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 0.1,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 0.118,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 0.118,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 0.116,
+        "type": "pipeline"
+      }
+    ],
+    "QCLNG (Curtis Island)": [
+      {
+        "date": "2026-05-16",
+        "value": 722.169,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 735.097,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 727.148,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 418.98,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 714.719,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 582.328,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 716.642,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 725.575,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 706.414,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 751.21,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 706.721,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 739.348,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 707.592,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 757.843,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 708.499,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 763.044,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 698.056,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 753.956,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 704.115,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 747.345,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 649.509,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 757.737,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 1161.638,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 1510.252,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 1484.26,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 1527.119,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 1494.607,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 1466.272,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 1511.154,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 1486.009,
+        "type": "lng_export"
+      }
+    ],
+    "APLNG (Curtis Island)": [
+      {
+        "date": "2026-05-16",
+        "value": 1660.705,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 1661.768,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 1643.582,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 1654.068,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 1575.562,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 1425.581,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 1443.19,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 1419.51,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 1349.98,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 1421.655,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 1230.791,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 1400.638,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 1439.547,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 1606.929,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 1651.699,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 1655.222,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 1653.332,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 1543.902,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 1673.671,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 1675.954,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 1720.001,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 1600.324,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 1712.181,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 1697.811,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 1679.237,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 1677.946,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 1645.698,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 1661.788,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 1673.213,
+        "type": "lng_export"
+      }
+    ],
+    "GLNG (Curtis Island)": [
+      {
+        "date": "2026-05-16",
+        "value": 1125.279,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 1130.012,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 1221.617,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 1233.875,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 1242.697,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 1111.145,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 1053.504,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 1070.434,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 1048.482,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 921.693,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 1081.634,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 982.328,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 938.723,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 910.092,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 912.593,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 916.299,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 859.136,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 892.909,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 1038.441,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 1131.916,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 1121.581,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 1080.902,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 841.779,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 814.308,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 786.003,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 818.548,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 785.789,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 750.976,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 734.315,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 752.946,
+        "type": "lng_export"
+      }
+    ],
+    "Moomba": [
+      {
+        "date": "2026-05-16",
+        "value": 232.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-17",
+        "value": 223.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-18",
+        "value": 218.2,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-19",
+        "value": 225.3,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-20",
+        "value": 228.7,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-21",
+        "value": 229.0,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-22",
+        "value": 225.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-23",
+        "value": 229.6,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-24",
+        "value": 225.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-25",
+        "value": 227.8,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-26",
+        "value": 229.6,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-27",
+        "value": 228.2,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-28",
+        "value": 229.3,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-29",
+        "value": 226.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-30",
+        "value": 222.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-05-31",
+        "value": 225.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-01",
+        "value": 229.9,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-02",
+        "value": 222.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-03",
+        "value": 226.2,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-04",
+        "value": 225.8,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-05",
+        "value": 229.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-06",
+        "value": 216.8,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-07",
+        "value": 221.0,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-08",
+        "value": 227.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-09",
+        "value": 227.5,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-10",
+        "value": 226.6,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-11",
+        "value": 226.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-12",
+        "value": 223.7,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-13",
+        "value": 217.1,
+        "type": "production"
+      },
+      {
+        "date": "2026-06-14",
+        "value": 225.7,
+        "type": "production"
+      }
+    ]
+  },
   "snapshot": {
-    "sttm": {
-      "ADL": 5.6044,
-      "BRI": 6.29,
-      "SYD": 5.34
-    },
+    "sttm": [
+      {
+        "hub": "ADL",
+        "price": 5.6044
+      },
+      {
+        "hub": "BRI",
+        "price": 6.29
+      },
+      {
+        "hub": "SYD",
+        "price": 5.34
+      }
+    ],
     "dwgm": {
       "date": "2026-06-14",
       "price": 4.0649
     },
-    "weather": {
-      "Adelaide": 3.0999999999999996,
-      "Brisbane": 0.14999999999999858,
-      "Melbourne": 7.449999999999999,
-      "Sydney": 1.4499999999999993
-    },
-    "storage": {
-      "530038.0": 629.384,
-      "530042.0": 25094.537
-    },
-    "flows_date": null,
+    "weather": [
+      {
+        "city": "Adelaide",
+        "hdd": 3.0999999999999996
+      },
+      {
+        "city": "Brisbane",
+        "hdd": 0.14999999999999858
+      },
+      {
+        "city": "Melbourne",
+        "hdd": 7.449999999999999
+      },
+      {
+        "city": "Sydney",
+        "hdd": 1.4499999999999993
+      }
+    ],
+    "storage": [
+      {
+        "name": "Dandenong LNG",
+        "value": 629.384
+      },
+      {
+        "name": "Iona UGS",
+        "value": 25094.537
+      }
+    ],
+    "flows": [
+      {
+        "name": "EGP",
+        "type": "Pipeline (Actual Demand)",
+        "value": 149.415
+      },
+      {
+        "name": "Longford",
+        "type": "Production",
+        "value": 603.94
+      },
+      {
+        "name": "SWQP",
+        "type": "Pipeline (Actual Demand)",
+        "value": 0.116
+      },
+      {
+        "name": "QCLNG (Curtis Island)",
+        "type": "LNG Export",
+        "value": 1486.009
+      },
+      {
+        "name": "GLNG (Curtis Island)",
+        "type": "LNG Export",
+        "value": 752.946
+      },
+      {
+        "name": "Moomba",
+        "type": "Production",
+        "value": 225.7
+      }
+    ],
     "sttm_date": "2026-06-15",
-    "weather_date": "2026-06-15"
+    "weather_date": "2026-06-15",
+    "weather_is_forecast": 1,
+    "storage_date": "2026-06-14",
+    "flows_date": "2026-06-14"
   },
   "scatter_melbourne": [
     {
