@@ -15,44 +15,44 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--ink);font-family:var(--sans);
-    line-height:1.5;padding:24px;max-width:1180px;margin:0 auto;}
+    font-size:15px;line-height:1.55;padding:24px;max-width:1180px;margin:0 auto;}
   header{border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:20px;
     display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;}
-  h1{font-size:18px;font-weight:600;letter-spacing:-0.01em;}
-  h1 .sub{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px;}
-  .meta{font-family:var(--mono);font-size:11px;color:var(--faint);}
-  .health{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:5px;
+  h1{font-size:20px;font-weight:600;letter-spacing:-0.01em;}
+  h1 .sub{color:var(--muted);font-weight:400;font-size:14px;margin-left:8px;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--faint);}
+  .health{font-family:var(--mono);font-size:12px;padding:4px 10px;border-radius:5px;
     display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);}
   .health .hdot{width:7px;height:7px;border-radius:50%;flex:none;}
   .health.ok{color:#69db7c;} .health.ok .hdot{background:#69db7c;}
   .health.degraded{color:#ffd43b;} .health.degraded .hdot{background:#ffd43b;}
   .health.error{color:#ff8787;} .health.error .hdot{background:#ff8787;}
-  .health-detail{font-family:var(--mono);font-size:10px;color:var(--faint);
+  .health-detail{font-family:var(--mono);font-size:11px;color:var(--faint);
     margin-bottom:18px;margin-top:-12px;word-break:break-word;}
   .snapshot{margin-bottom:24px;}
-  .snap-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--faint);
+  .snap-label{font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--faint);
     font-family:var(--mono);margin-bottom:10px;}
   .snap-section{margin-bottom:14px;}
-  .snap-h{font-size:11px;font-weight:600;color:var(--ink);margin-bottom:7px;
+  .snap-h{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:7px;
     display:flex;align-items:baseline;gap:8px;}
-  .snap-d{font-family:var(--mono);font-size:10px;color:var(--faint);font-weight:400;}
+  .snap-d{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:400;}
   .snap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
   .stat{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:11px 13px;}
-  .stat .k{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;
+  .stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;
     font-family:var(--mono);margin-bottom:3px;display:flex;align-items:center;gap:5px;}
-  .stat .v{font-size:21px;font-weight:600;font-family:var(--mono);letter-spacing:-0.02em;}
-  .stat .u{font-size:11px;color:var(--faint);font-weight:400;margin-left:2px;}
+  .stat .v{font-size:23px;font-weight:600;font-family:var(--mono);letter-spacing:-0.02em;}
+  .stat .u{font-size:12px;color:var(--faint);font-weight:400;margin-left:2px;}
   .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none;}
   .grid{display:grid;grid-template-columns:1fr;gap:16px;}
-  @media(max-width:760px){body{padding:14px}.stat .v{font-size:18px}}
+  @media(max-width:760px){body{padding:14px;font-size:14px}.stat .v{font-size:20px}}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;}
-  .panel h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;
+  .panel h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;
     color:var(--muted);margin-bottom:4px;}
-  .panel .desc{font-size:11px;color:var(--faint);margin-bottom:12px;font-family:var(--mono);}
+  .panel .desc{font-size:12px;color:var(--faint);margin-bottom:12px;font-family:var(--mono);}
   .chart-box{position:relative;height:260px;}
-  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:50px 0;text-align:center;}
+  .empty{color:var(--faint);font-family:var(--mono);font-size:13px;padding:50px 0;text-align:center;}
   footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--border);
-    font-size:11px;color:var(--faint);font-family:var(--mono);}
+    font-size:12px;color:var(--faint);font-family:var(--mono);}
 </style>
 </head>
 <body>
@@ -118,11 +118,11 @@ const baseOpts=(yLabel)=>({responsive:true,maintainAspectRatio:false,
   interaction:{mode:'index',intersect:false},
   scales:{
     x:{type:'category',
-       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'},
+        grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:11,family:'monospace'},
          maxRotation:0,autoSkip:true,maxTicksLimit:8}},
-    y:{title:{display:!!yLabel,text:yLabel,color:'#8b949e',font:{size:10}},
-       grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
-  plugins:{legend:{labels:{color:'#e6edf3',font:{size:11},boxWidth:12,boxHeight:2}},
+        y:{title:{display:!!yLabel,text:yLabel,color:'#8b949e',font:{size:11}},
+        grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:11,family:'monospace'}}}},
+      plugins:{legend:{labels:{color:'#e6edf3',font:{size:12},boxWidth:12,boxHeight:2}},
     tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
       titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10}}});
 
@@ -243,10 +243,10 @@ fetch('data.json').then(function(r){return r.json();}).then(function(d){
         backgroundColor:pts.map(function(p){return hddColor(p.x);}),pointRadius:4,pointHoverRadius:6}]},
       options:{responsive:true,maintainAspectRatio:false,
         scales:{
-          x:{type:'linear',title:{display:true,text:'Melbourne HDD (observed)',color:'#8b949e',font:{size:10}},
-             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}},
-          y:{title:{display:true,text:'DWGM 6am $/GJ',color:'#8b949e',font:{size:10}},
-             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:10,family:'monospace'}}}},
+           x:{type:'linear',title:{display:true,text:'Melbourne HDD (observed)',color:'#8b949e',font:{size:11}},
+             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:11,family:'monospace'}}},
+           y:{title:{display:true,text:'DWGM 6am $/GJ',color:'#8b949e',font:{size:11}},
+             grid:{color:'#21262d'},ticks:{color:'#8b949e',font:{size:11,family:'monospace'}}}},
         plugins:{legend:{display:false},
           tooltip:{backgroundColor:'#161b22',borderColor:'#272d36',borderWidth:1,
             titleColor:'#e6edf3',bodyColor:'#e6edf3',bodyFont:{family:'monospace'},padding:10,
