@@ -188,7 +188,7 @@ fetch('data.json').then(function(r){return r.json();}).then(function(d){
   // 天气组（标注是否预报）
   if(s.weather&&s.weather.length){
     var wExtra=s.weather_is_forecast?' (forecast)':'';
-    html_snap+=section('Heating Demand (HDD)',s.weather_date||'',wExtra);
+    html_snap+=section('Heating Degree Days (HDD)',s.weather_date||'',wExtra);
     html_snap+='<div class="snap-grid">';
     s.weather.forEach(function(x){html_snap+=stat(x.city,x.hdd==null?'\u2014':x.hdd.toFixed(1),'',hddColor(x.hdd));});
     html_snap+='</div></div>';
