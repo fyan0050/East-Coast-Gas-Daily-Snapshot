@@ -1,7 +1,7 @@
 # East Coast Gas Daily Snapshot
 
 **Gas Date / Run Date:** 2026-06-15
-**Run Timestamp:** 2026-06-15 10:15:00 AEST
+**Run Timestamp:** 2026-06-15 19:10:29 AEST
 **Pipeline health:** OK
 
 ---
@@ -16,17 +16,17 @@
 ## 3. Storage
 * **Status:** As of 2026-06-14:
 * **Iona UGS**: 25,095 TJ
-* **Dandenong LNG**: N/A
+* **Dandenong LNG**: 629 TJ
 
 ## 4. Flows (Major Facilities & Pipelines)
 As of 2026-06-14 (pipeline figures aligned to AEMO GBB dashboard):
 * **Longford** (Production): 604 TJ
-* **Moomba** (Production): N/A
-* **GLNG (Curtis Island)** (LNG Export): 771 TJ
-* **QCLNG (Curtis Island)** (LNG Export): N/A
+* **Moomba** (Production): 226 TJ
+* **GLNG (Curtis Island)** (LNG Export): 753 TJ
+* **QCLNG (Curtis Island)** (LNG Export): 1,486 TJ
 * **APLNG (Curtis Island)** (LNG Export): N/A
-* **EGP** (Pipeline): N/A
-* **SWQP** (Pipeline): Actual Demand 0 TJ | Actual TransferOut 0 TJ
+* **EGP** (Pipeline): Actual Demand 149 TJ | Actual TransferOut 101 TJ
+* **SWQP** (Pipeline): Actual Demand 0 TJ | Actual TransferOut 413 TJ
 
 ---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
