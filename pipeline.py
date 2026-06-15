@@ -6,6 +6,7 @@ import time
 import zipfile
 import logging
 import datetime
+import json
 
 import requests
 import pandas as pd
@@ -27,21 +28,28 @@ RAW_DIR = f"data/raw/{TODAY_STR}"
 REPORT_DIR = "reports"
 DB_PATH = "data/processed/east_coast_gas.db"
 
-GBB_URL = "https://nemweb.com.au/Reports/Current/GBB/GasBBActualFlowStorageLast31.CSV"
-STTM_FOLDER_URL = "https://nemweb.com.au/Reports/Current/STTM/"
+GBB_URL = "https://nemweb.com.au/Reports/CURRENT/GBB/GasBBActualFlowStorageLast31.CSV"
+STTM_FOLDER_URL = "https://nemweb.com.au/Reports/CURRENT/STTM/"
+DWGM_URL = "https://nemweb.com.au/Reports/CURRENT/VicGas/CurrentDay.zip"
+
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 PIPELINE_ERRORS = []
 
-# 表结构假定（建表在本文件之外）：
-#   storage(gas_date, facility_id, held_in_storage, source_file, ingested_at)
-#           UNIQUE(gas_date, facility_id)
-#   flows(gas_date, facility_id, facility_type, supply, demand, transfer_in,
-#         transfer_out, source_file, ingested_at)
-#           UNIQUE(gas_date, facility_id)
-#   prices(gas_date, hub, price_type, price, source_file, ingested_at)
-#           UNIQUE(gas_date, hub, price_type)
-# UNIQUE 约束是 INSERT OR REPLACE 幂等(修订自愈)的前提。
+
+def parse_dates(series, dayfirst=False):
+    """统一日期解析：coerce 不崩，调用方负责处理 NaT。"""
+    return pd.to_datetime(series, dayfirst=dayfirst, errors='coerce')
+
+def safe_max_date(series, fallback_date, label=""):
+    """取最大日期，全 NaT 时用 fallback，并记 warning。"""
+    m = series.max()
+    if pd.isna(m):
+        logging.warning(f"{label}: date parse all-failed, using fallback.")
+        PIPELINE_ERRORS.append(f"{label} warning: dates unparseable, used fallback.")
+        return pd.Timestamp(fallback_date)
+    return m.normalize()
+
 
 # ==========================================
 # 目录
@@ -344,8 +352,9 @@ def fetch_sttm_data():
         PIPELINE_ERRORS.append(f"STTM parse error: {e}")
         return f"Parse error: {e}", []
 
-
-DWGM_URL = "https://nemweb.com.au/Reports/CURRENT/VicGas/CurrentDay.zip"
+# ==========================================
+# DWGM price
+# ==========================================
  
 def _file_timestamp(fn):
     """从 int037c_..._N~<timestamp>.csv 提取末尾时间戳数字，用于选最新文件。"""
@@ -378,13 +387,27 @@ def fetch_dwgm_data():
  
         source_file = latest_file.split('/')[-1]
  
-        # 2. 解析：日期与 approval 时间
-        # gas_date 形如 14-Jun-26；approval/current_date 形如 14/06/26 5:09
-        # 显式格式避免 dateutil 逐行推断(慢且可能不一致)；若 AEMO 改格式会明确报错而非静默错解
-        df['gas_date_dt'] = pd.to_datetime(df['gas_date'], format='%d-%b-%y', errors='coerce')
-        df['approval_dt'] = pd.to_datetime(df['approval_datetime'], format='%d/%m/%y %H:%M', errors='coerce')
-        current_date = pd.to_datetime(df['current_date'], format='%d/%m/%y %H:%M',
-                                      errors='coerce').max().normalize()
+
+        # 2. 解析：日期与 approval 时间（dayfirst=True：日在前，如 14/06/26）
+        df['gas_date_dt'] = pd.to_datetime(df['gas_date'], dayfirst=True, errors='coerce')
+        df['approval_dt'] = pd.to_datetime(df['approval_datetime'], dayfirst=True, errors='coerce')
+
+        # current_date 用于区分实际/预测；解析失败则用今天兜底，绝不让 NaT 传到 .normalize()
+        cd_series = pd.to_datetime(df['current_date'], dayfirst=True, errors='coerce')
+        cd_max = cd_series.max()
+        if pd.isna(cd_max):
+            logging.warning("DWGM current_date 解析全失败，回退用 TODAY_DT。")
+            PIPELINE_ERRORS.append("DWGM warning: current_date unparseable, used today as fallback.")
+            current_date = pd.Timestamp(TODAY_DT.date())
+        else:
+            current_date = cd_max.normalize()
+
+        # 防线：gas_date 解析失败的行记 warning 后剔除（不静默丢）
+        n_bad = int(df['gas_date_dt'].isna().sum())
+        if n_bad:
+            logging.warning(f"DWGM: {n_bad} rows with unparseable gas_date dropped.")
+            PIPELINE_ERRORS.append(f"DWGM warning: {n_bad} rows dropped (bad gas_date).")
+            df = df[df['gas_date_dt'].notna()]
  
         # 行层：每个 gas_date 取 approval 最早的一行(6am schedule)
         records, rows_for_report = [], []
@@ -434,6 +457,100 @@ def _build_dwgm_summary(rows):
         fc = " | ".join(f"{d}: ${p:.2f}" for d, p in forecast)
         parts.append(f"Forecast — {fc}")
     return " \n* **Status:** ".join(parts)
+
+# ==========================================
+# 天气
+# ==========================================
+
+HDD_BASE_TEMP = 18.0  # 取暖度日基准温度(°C)
+ 
+CITIES = {
+    "Sydney":    {"lat": -33.87, "lon": 151.21, "market": "STTM-SYD"},
+    "Brisbane":  {"lat": -27.47, "lon": 153.03, "market": "STTM-BRI"},
+    "Adelaide":  {"lat": -34.93, "lon": 138.60, "market": "STTM-ADL"},
+    "Melbourne": {"lat": -37.81, "lon": 144.96, "market": "DWGM-VIC"},
+}
+ 
+def _hdd(temp_mean):
+    if temp_mean is None or pd.isna(temp_mean):
+        return None
+    return max(0.0, HDD_BASE_TEMP - float(temp_mean))
+ 
+def fetch_weather():
+    """拉四城当天预报，算 HDD，入库，返回报告文本。
+    返回: (weather_summary_str, records_list)
+    """
+    ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    records = []
+    report_rows = []  # (city, market, hdd, tmax, tmin)
+ 
+    for city, geo in CITIES.items():
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={geo['lat']}&longitude={geo['lon']}"
+            "&daily=temperature_2m_max,temperature_2m_min"
+            "&forecast_days=1"
+            "&timezone=Australia%2FSydney"
+        )
+        content = fetch_with_retries(url)
+        if not content:
+            PIPELINE_ERRORS.append(f"Weather download failed (network): {city}")
+            continue
+ 
+        try:
+            data = json.loads(content)
+            daily = data["daily"]
+            d = daily["time"][0]                 # 只有今天一天
+            mx = daily["temperature_2m_max"][0]
+            mn = daily["temperature_2m_min"][0]
+            tmean = None if (mx is None or mn is None) else (mx + mn) / 2.0
+            hdd = _hdd(tmean)
+ 
+            records.append((
+                d, city,
+                None if mx is None else float(mx),
+                None if mn is None else float(mn),
+                None if tmean is None else float(tmean),
+                None if hdd is None else float(hdd),
+                1,  # is_forecast：当天值由预报给出
+                "open-meteo", ingested_at,
+            ))
+            report_rows.append((city, geo['market'], hdd, mx, mn))
+ 
+        except Exception as e:
+            logging.exception(f"Weather parse error: {city}")
+            PIPELINE_ERRORS.append(f"Weather parse error ({city}): {e}")
+ 
+    # 入库
+    if records:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.executemany(
+                'INSERT OR REPLACE INTO weather '
+                '(date, city, temp_max, temp_min, temp_mean, hdd, is_forecast, source, ingested_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', records)
+            conn.commit(); conn.close()
+            logging.info(f"Saved {len(records)} weather records.")
+        except Exception as e:
+            logging.exception("Weather DB error")
+            PIPELINE_ERRORS.append(f"Weather parse error (db): {e}")
+ 
+    return _build_weather_summary(report_rows), records
+ 
+def _build_weather_summary(rows):
+    """报告文本：四城当天 HDD（含对应市场标注）。"""
+    if not rows:
+        return "Weather data unavailable."
+    lines = []
+    for city, market, hdd, mx, mn in rows:
+        if hdd is None:
+            lines.append(f"* **{city}** ({market}): N/A")
+        else:
+            lines.append(f"* **{city}** ({market}): HDD {hdd:.1f} "
+                         f"(max {mx:.0f}°C / min {mn:.0f}°C)")
+    note = ("\n\n_HDD = heating degree days (base 18°C); higher = colder = more gas heating demand. "
+            "Today's forecast._")
+    return f"Today's forecast:\n" + "\n".join(lines) + note
 
 
 # ==========================================
@@ -494,7 +611,8 @@ def main():
     gbb_summary, _, _ = fetch_gbb_data()
     sttm_summary, _ = fetch_sttm_data()
     dwgm_summary, _ = fetch_dwgm_data()
-    generate_report(gbb_summary, sttm_summary)
+    eather_summary, _ = fetch_weather()
+    generate_report(gbb_summary, sttm_summary, dwgm_summary, eather_summary)
 
     fatal = [e for e in PIPELINE_ERRORS if "parse error" in e.lower()]
     if fatal:
