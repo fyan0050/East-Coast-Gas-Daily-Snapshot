@@ -344,12 +344,112 @@ def fetch_sttm_data():
         PIPELINE_ERRORS.append(f"STTM parse error: {e}")
         return f"Parse error: {e}", []
 
+
+DWGM_URL = "https://nemweb.com.au/Reports/CURRENT/VicGas/CurrentDay.zip"
+ 
+def _file_timestamp(fn):
+    """从 int037c_..._N~<timestamp>.csv 提取末尾时间戳数字，用于选最新文件。"""
+    m = re.search(r'~(\d+)\.csv$', fn, re.IGNORECASE)
+    return int(m.group(1)) if m else -1
+ 
+def fetch_dwgm_data():
+    """返回 (dwgm_summary_str, records_list)。"""
+    content = fetch_with_retries(DWGM_URL)
+    if not content:
+        PIPELINE_ERRORS.append("DWGM download failed (network).")
+        return "Data unavailable", []
+ 
+    ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+ 
+    try:
+        # 1. 文件层：选时间戳最大的 int037c indicative_price 文件
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            candidates = [f for f in z.namelist()
+                          if f.lower().startswith('int037c')
+                          and 'indicative_price' in f.lower()
+                          and f.lower().endswith('.csv')]
+            if not candidates:
+                PIPELINE_ERRORS.append("DWGM parse error: no int037c file in zip.")
+                return "No int037c file found", []
+ 
+            latest_file = max(candidates, key=_file_timestamp)
+            with z.open(latest_file) as fh:
+                df = pd.read_csv(fh)
+ 
+        source_file = latest_file.split('/')[-1]
+ 
+        # 2. 解析：日期与 approval 时间
+        # gas_date 形如 14-Jun-26；approval/current_date 形如 14/06/26 5:09
+        # 显式格式避免 dateutil 逐行推断(慢且可能不一致)；若 AEMO 改格式会明确报错而非静默错解
+        df['gas_date_dt'] = pd.to_datetime(df['gas_date'], format='%d-%b-%y', errors='coerce')
+        df['approval_dt'] = pd.to_datetime(df['approval_datetime'], format='%d/%m/%y %H:%M', errors='coerce')
+        current_date = pd.to_datetime(df['current_date'], format='%d/%m/%y %H:%M',
+                                      errors='coerce').max().normalize()
+ 
+        # 行层：每个 gas_date 取 approval 最早的一行(6am schedule)
+        records, rows_for_report = [], []
+        for gdate, grp in df.groupby('gas_date_dt'):
+            earliest = grp.sort_values('approval_dt').iloc[0]
+            price = float(earliest['price_value_gst_ex'])
+            is_forecast = 1 if gdate.normalize() > current_date else 0
+            g_str = gdate.strftime('%Y-%m-%d')
+            records.append((
+                g_str, price,
+                earliest['approval_dt'].strftime('%Y-%m-%d %H:%M'),
+                is_forecast, source_file, ingested_at))
+            rows_for_report.append((g_str, price, is_forecast))
+ 
+        # 3. 入库
+        if records:
+            conn = sqlite3.connect(DB_PATH)
+            conn.executemany(
+                'INSERT OR REPLACE INTO dwgm_prices '
+                '(gas_date, price_6am_schedule, approval_datetime, is_forecast, '
+                ' source_file, ingested_at) VALUES (?, ?, ?, ?, ?, ?)', records)
+            conn.commit(); conn.close()
+            logging.info(f"Saved {len(records)} DWGM records.")
+ 
+        summary = _build_dwgm_summary(rows_for_report)
+        return summary, records
+ 
+    except Exception as e:
+        logging.exception("DWGM parse/persist error")
+        PIPELINE_ERRORS.append(f"DWGM parse error: {e}")
+        return f"Parse error: {e}", []
+
+def _build_dwgm_summary(rows):
+    """报告文本：当日实际价 + 明后日预测价。"""
+    if not rows:
+        return "No DWGM data."
+    rows = sorted(rows, key=lambda r: r[0])
+    actual = [(d, p) for (d, p, f) in rows if f == 0]
+    forecast = [(d, p) for (d, p, f) in rows if f == 1]
+ 
+    parts = []
+    if actual:
+        # 最新的实际日(通常就是当天 gas date)
+        d, p = actual[-1]
+        parts.append(f"VIC (DWGM) {d}: **${p:.2f}/GJ** ")
+    if forecast:
+        fc = " | ".join(f"{d}: ${p:.2f}" for d, p in forecast)
+        parts.append(f"Forecast — {fc}")
+    return " \n* **Status:** ".join(parts)
+
+
 # ==========================================
 # 报告
 # ==========================================
-def generate_report(gbb_data, sttm_status):
+def generate_report(gbb_data, sttm_status, dwgm_status, weather_status=None):
     run_time = datetime.datetime.now(MELBOURNE_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
     health = "OK" if not PIPELINE_ERRORS else "DEGRADED: " + "; ".join(PIPELINE_ERRORS)
+
+    # weather 段可选：未拼接 weather 模块时传 None，则不显示该段
+    weather_section = ""
+    if weather_status:
+        weather_section = f"""## 5. Weather & Heating Demand Signal
+* **Status:** {weather_status}
+
+"""
 
     md = f"""# East Coast Gas Daily Snapshot
 
@@ -362,16 +462,21 @@ def generate_report(gbb_data, sttm_status):
 ## 1. Anomaly Summary
 * (anomaly module pending)
 
-## 2. Prices (STTM)
+## 2. Prices — STTM Hubs (Sydney / Brisbane / Adelaide)
 * **Status:** {sttm_status}
 
-## 3. Storage
+## 3. Price — DWGM (Victoria, single price)
+* **Status:** {dwgm_status}
+
+  _Figure shown is the 6am schedule price — the ASX Victorian gas futures reference price._
+
+## 4. Storage
 * **Status:** {gbb_data['storage']}
 
-## 4. Flows (Major Facilities & Pipelines)
+## 5. Flows (Major Facilities & Pipelines)
 {gbb_data['flows']}
 
----
+{weather_section}---
 *Disclaimer: Personal learning project. Public AEMO data. Not investment advice.*
 """
     with open(os.path.join(REPORT_DIR, f"{TODAY_STR}.md"), "w", encoding='utf-8') as f:
@@ -388,6 +493,7 @@ def main():
 
     gbb_summary, _, _ = fetch_gbb_data()
     sttm_summary, _ = fetch_sttm_data()
+    dwgm_summary, _ = fetch_dwgm_data()
     generate_report(gbb_summary, sttm_summary)
 
     fatal = [e for e in PIPELINE_ERRORS if "parse error" in e.lower()]
