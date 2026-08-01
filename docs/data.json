@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-01T00:03:55.290748+00:00",
+  "generated_at": "2026-08-01T23:58:49.646243+00:00",
   "history_days": 90,
   "health": {
     "status": "ok",
@@ -265,11 +265,16 @@
       {
         "date": "2026-07-31",
         "ex_ante": 14.9246,
-        "ex_post": null
+        "ex_post": 15.89
       },
       {
         "date": "2026-08-01",
         "ex_ante": 12.4112,
+        "ex_post": null
+      },
+      {
+        "date": "2026-08-02",
+        "ex_ante": 11.7416,
         "ex_post": null
       }
     ],
@@ -532,11 +537,16 @@
       {
         "date": "2026-07-31",
         "ex_ante": 12.6505,
-        "ex_post": null
+        "ex_post": 12.75
       },
       {
         "date": "2026-08-01",
         "ex_ante": 12.4888,
+        "ex_post": null
+      },
+      {
+        "date": "2026-08-02",
+        "ex_ante": 12.332,
         "ex_post": null
       }
     ],
@@ -799,11 +809,16 @@
       {
         "date": "2026-07-31",
         "ex_ante": 12.33,
-        "ex_post": null
+        "ex_post": 12.33
       },
       {
         "date": "2026-08-01",
         "ex_ante": 12.4935,
+        "ex_post": null
+      },
+      {
+        "date": "2026-08-02",
+        "ex_ante": 11.79,
         "ex_post": null
       }
     ]
@@ -1111,12 +1126,17 @@
     },
     {
       "date": "2026-07-31",
-      "price": 11.0222,
-      "is_forecast": 1
+      "price": 11.55,
+      "is_forecast": 0
     },
     {
       "date": "2026-08-01",
-      "price": 10.6108,
+      "price": 10.8999,
+      "is_forecast": 1
+    },
+    {
+      "date": "2026-08-02",
+      "price": 10.3223,
       "is_forecast": 1
     }
   ],
@@ -1425,6 +1445,10 @@
       {
         "date": "2026-07-30",
         "value": 615.074
+      },
+      {
+        "date": "2026-07-31",
+        "value": 614.701
       }
     ],
     "Iona UGS": [
@@ -1735,6 +1759,10 @@
       {
         "date": "2026-07-31",
         "value": 15267.47
+      },
+      {
+        "date": "2026-08-01",
+        "value": 15086.544
       }
     ]
   },
@@ -1979,6 +2007,10 @@
       {
         "date": "2026-08-01",
         "hdd": 8.25
+      },
+      {
+        "date": "2026-08-02",
+        "hdd": 7.300000000000001
       }
     ],
     "Brisbane": [
@@ -2221,6 +2253,10 @@
       {
         "date": "2026-08-01",
         "hdd": 3.1500000000000004
+      },
+      {
+        "date": "2026-08-02",
+        "hdd": 2.1999999999999993
       }
     ],
     "Melbourne": [
@@ -2463,6 +2499,10 @@
       {
         "date": "2026-08-01",
         "hdd": 9.5
+      },
+      {
+        "date": "2026-08-02",
+        "hdd": 6.449999999999999
       }
     ],
     "Sydney": [
@@ -2705,6 +2745,10 @@
       {
         "date": "2026-08-01",
         "hdd": 6.449999999999999
+      },
+      {
+        "date": "2026-08-02",
+        "hdd": 5.850000000000001
       }
     ]
   },
@@ -3088,6 +3132,11 @@
       {
         "date": "2026-07-30",
         "value": 177.07,
+        "type": "pipeline"
+      },
+      {
+        "date": "2026-07-31",
+        "value": 150.915,
         "type": "pipeline"
       }
     ],
@@ -3476,6 +3525,11 @@
         "date": "2026-07-31",
         "value": 582.854,
         "type": "production"
+      },
+      {
+        "date": "2026-08-01",
+        "value": 662.69,
+        "type": "production"
       }
     ],
     "SWQP": [
@@ -3861,7 +3915,7 @@
       },
       {
         "date": "2026-07-31",
-        "value": 0.0,
+        "value": 0.12,
         "type": "pipeline"
       }
     ],
@@ -4245,6 +4299,11 @@
         "date": "2026-07-30",
         "value": 1406.037,
         "type": "lng_export"
+      },
+      {
+        "date": "2026-07-31",
+        "value": 1449.186,
+        "type": "lng_export"
       }
     ],
     "APLNG (Curtis Island)": [
@@ -4626,6 +4685,11 @@
       {
         "date": "2026-07-30",
         "value": 1658.186,
+        "type": "lng_export"
+      },
+      {
+        "date": "2026-07-31",
+        "value": 1484.247,
         "type": "lng_export"
       }
     ],
@@ -5012,7 +5076,7 @@
       },
       {
         "date": "2026-07-31",
-        "value": 828.054,
+        "value": 899.399,
         "type": "lng_export"
       }
     ],
@@ -5396,6 +5460,11 @@
         "date": "2026-07-30",
         "value": 222.5,
         "type": "production"
+      },
+      {
+        "date": "2026-07-31",
+        "value": 215.0,
+        "type": "production"
       }
     ]
   },
@@ -5403,67 +5472,57 @@
     "sttm": [
       {
         "hub": "ADL",
-        "price": 12.4112
+        "price": 11.7416
       },
       {
         "hub": "BRI",
-        "price": 12.4888
+        "price": 12.332
       },
       {
         "hub": "SYD",
-        "price": 12.4935
+        "price": 11.79
       }
     ],
     "dwgm": {
-      "date": "2026-07-30",
-      "price": 10.8332
+      "date": "2026-07-31",
+      "price": 11.55
     },
     "weather": [
       {
         "city": "Adelaide",
-        "hdd": 8.25
+        "hdd": 7.300000000000001
       },
       {
         "city": "Brisbane",
-        "hdd": 3.1500000000000004
+        "hdd": 2.1999999999999993
       },
       {
         "city": "Melbourne",
-        "hdd": 9.5
+        "hdd": 6.449999999999999
       },
       {
         "city": "Sydney",
-        "hdd": 6.449999999999999
+        "hdd": 5.850000000000001
       }
     ],
     "storage": [
       {
         "name": "Iona UGS",
-        "value": 15267.47
+        "value": 15086.544
       }
     ],
     "flows": [
       {
         "name": "Longford",
         "type": "Production",
-        "value": 582.854
-      },
-      {
-        "name": "SWQP",
-        "type": "Pipeline (Actual Demand)",
-        "value": 0.0
-      },
-      {
-        "name": "GLNG (Curtis Island)",
-        "type": "LNG Export",
-        "value": 828.054
+        "value": 662.69
       }
     ],
-    "sttm_date": "2026-08-01",
-    "weather_date": "2026-08-01",
+    "sttm_date": "2026-08-02",
+    "weather_date": "2026-08-02",
     "weather_is_forecast": 1,
-    "storage_date": "2026-07-31",
-    "flows_date": "2026-07-31"
+    "storage_date": "2026-08-01",
+    "flows_date": "2026-08-01"
   },
   "scatter_melbourne": [
     {
